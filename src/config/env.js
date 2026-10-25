@@ -9,8 +9,19 @@ if (missing.length > 0) {
   throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
 }
 
+const nodeEnv = process.env.NODE_ENV || 'development';
+
 module.exports = {
-  nodeEnv: process.env.NODE_ENV || 'development',
+  nodeEnv,
+  isProduction: nodeEnv === 'production',
+  server: {
+    port: Number(process.env.PORT) || 3000,
+    // Comma-separated list of allowed frontend origins.
+    corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:5173')
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean),
+  },
   db: {
     host: process.env.DB_HOST,
     port: Number(process.env.DB_PORT) || 5432,
