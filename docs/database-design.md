@@ -1,6 +1,6 @@
 # Diseño de base de datos
 
-Motor: **PostgreSQL** · Migraciones: **Knex** (`src/migrations`) · 12 tablas + función `set_updated_at()`.
+Motor: **PostgreSQL** · Migraciones: **Knex** (`src/migrations`) · 12 tablas + función `set_updated_at()` + extensión `unaccent` (búsqueda sin tildes).
 
 > Para ver el diagrama en VS Code instala la extensión **Markdown Preview Mermaid Support** y abre la vista previa (`Ctrl+Shift+V`). GitHub y GitLab lo muestran directamente.
 

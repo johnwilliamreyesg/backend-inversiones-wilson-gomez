@@ -10,6 +10,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "test": "node --test tests/",
     "db:migrate": "knex migrate:latest",
     "db:rollback": "knex migrate:rollback",
     "db:rollback:all": "knex migrate:rollback --all",
