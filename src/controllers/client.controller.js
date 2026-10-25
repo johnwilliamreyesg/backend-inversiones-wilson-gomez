@@ -16,10 +16,8 @@ class ClientController {
   };
 
   create = async (req, res) => {
-    // req.user is set by the authentication middleware (next card); null until then.
-    const client = await this.clientService.create(req.validated.body, {
-      userId: req.user?.id ?? null,
-    });
+    // req.user is set by the authenticate middleware.
+    const client = await this.clientService.create(req.validated.body, { userId: req.user.id });
     res.status(201).json({ data: client });
   };
 

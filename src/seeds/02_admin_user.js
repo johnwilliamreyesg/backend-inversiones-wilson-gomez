@@ -1,7 +1,5 @@
-const bcrypt = require('bcryptjs');
 const env = require('../config/env');
-
-const SALT_ROUNDS = 10;
+const { PasswordHasher } = require('../security/password-hasher');
 
 // Creates the first administrator from ADMIN_* variables in .env.
 // Never overwrites an existing user (so a changed password is not reset).
@@ -24,6 +22,6 @@ exports.seed = async (knex) => {
     role_id: adminRole.id,
     full_name: fullName,
     email: email.toLowerCase(),
-    password_hash: await bcrypt.hash(password, SALT_ROUNDS),
+    password_hash: await new PasswordHasher().hash(password),
   });
 };

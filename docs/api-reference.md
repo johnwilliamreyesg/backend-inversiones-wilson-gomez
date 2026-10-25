@@ -4,6 +4,14 @@ Base: `http://localhost:3000/api` (desarrollo). Todo el intercambio es JSON (UTF
 
 ## Convenciones
 
+**Autenticación:** todas las rutas, excepto `GET /health` y `POST /auth/login`, exigen la cabecera:
+
+```
+Authorization: Bearer <token>
+```
+
+El token se obtiene en el login y dura `JWT_EXPIRES_IN` (12 h por defecto). Para cerrar sesión, el frontend simplemente descarta el token.
+
 **Respuesta exitosa**
 
 ```jsonc
@@ -29,10 +37,11 @@ Base: `http://localhost:3000/api` (desarrollo). Todo el intercambio es JSON (UTF
 |---|---|---|
 | 400 | `VALIDATION_ERROR` | Datos con formato inválido (`details` trae cada campo) |
 | 400 | `INVALID_JSON` | El cuerpo no es JSON válido |
-| 401 | `UNAUTHORIZED` | Falta iniciar sesión *(cuando exista autenticación)* |
-| 403 | `FORBIDDEN` | Sin permiso para la acción *(cuando exista autenticación)* |
+| 401 | `UNAUTHORIZED` | Sin token, token inválido o caducado, o usuario inactivo → el frontend debe enviar al login |
+| 403 | `FORBIDDEN` | Sesión válida pero sin permiso para esa acción |
 | 404 | `NOT_FOUND` | El recurso o la ruta no existe |
 | 409 | `CONFLICT` | Choca con datos existentes (cédula repetida, cliente con créditos abiertos…) |
+| 429 | `TOO_MANY_REQUESTS` | Demasiados logins fallidos (10 cada 15 min por IP) |
 | 500 | `INTERNAL_ERROR` | Error inesperado del servidor |
 
 **Paginación** (query): `page` (por defecto 1), `pageSize` (por defecto 20, máximo 100).
@@ -51,7 +60,58 @@ Estado del servidor y de la base de datos. `200` si todo está bien, `503` si la
 
 ---
 
+## Autenticación
+
+### `POST /auth/login` *(pública)*
+
+```json
+{ "email": "admin@example.com", "password": "Secret123" }
+```
+
+Respuesta `200`:
+
+```json
+{
+  "data": {
+    "token": "eyJhbGciOi...",
+    "user": {
+      "id": 1,
+      "fullName": "Administrador",
+      "email": "admin@example.com",
+      "isActive": true,
+      "lastLoginAt": "2026-10-24T15:00:00.000Z",
+      "roleId": 1,
+      "roleName": "admin",
+      "permissions": ["clients.create", "clients.read", "..."]
+    }
+  }
+}
+```
+
+- El correo no distingue mayúsculas y se recortan espacios.
+- Correo inexistente y contraseña errada devuelven **el mismo** `401 Correo o contraseña incorrectos.` (no revela qué correos existen).
+- Usuario inactivo → `401`.
+- 10 intentos fallidos en 15 min desde la misma IP → `429` (los logins exitosos no cuentan).
+
+`permissions` sirve al frontend para mostrar u ocultar botones; la API igual valida cada permiso.
+
+### `GET /auth/me`
+Devuelve el mismo objeto `user` del login, con datos y permisos actuales.
+
+### `PATCH /auth/password`
+
+```json
+{ "currentPassword": "Secret123", "newPassword": "NewSecret456" }
+```
+
+- Nueva contraseña: mínimo 8 caracteres, al menos una letra y un número, distinta de la actual.
+- Respuesta `200`: `{ "data": { "token": "..." } }`. **El frontend debe reemplazar su token por este**: todas las demás sesiones abiertas (otros dispositivos) quedan cerradas.
+
+---
+
 ## Clientes
+
+Permisos: `clients.read` (listar/ver), `clients.create`, `clients.update`, `clients.delete`. `createdBy` se llena con el usuario de la sesión.
 
 ### Objeto `Client`
 

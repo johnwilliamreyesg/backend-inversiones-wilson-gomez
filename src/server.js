@@ -5,7 +5,11 @@ const { createApp } = require('./app');
 const SHUTDOWN_TIMEOUT_MS = 10000;
 
 const container = createContainer();
-const app = createApp({ controllers: container.controllers, config: env });
+const app = createApp({
+  controllers: container.controllers,
+  middlewares: container.middlewares,
+  config: env,
+});
 
 const server = app.listen(env.server.port, () => {
   console.log(`API listening on http://localhost:${env.server.port}/api (${env.nodeEnv})`);

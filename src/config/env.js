@@ -30,6 +30,12 @@ module.exports = {
     password: process.env.DB_PASSWORD,
     ssl: process.env.DB_SSL === 'true',
   },
+  auth: {
+    // Validated by TokenProvider when the server starts (not here, so the
+    // Knex CLI can run migrations without it).
+    jwtSecret: process.env.JWT_SECRET,
+    jwtExpiresIn: process.env.JWT_EXPIRES_IN || '12h',
+  },
   admin: {
     fullName: process.env.ADMIN_FULL_NAME,
     email: process.env.ADMIN_EMAIL,
