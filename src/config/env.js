@@ -36,6 +36,22 @@ module.exports = {
     jwtSecret: process.env.JWT_SECRET,
     jwtExpiresIn: process.env.JWT_EXPIRES_IN || '12h',
   },
+  storage: {
+    // 'local' (disk, for development) or 'r2' (Cloudflare R2, for production).
+    driver: process.env.STORAGE_DRIVER || 'local',
+    signedUrlTtlSeconds: Number(process.env.SIGNED_URL_TTL_SECONDS) || 3600,
+    local: {
+      directory: process.env.LOCAL_STORAGE_DIR || './storage',
+      // Public base URL of this API, used to build links to local files.
+      publicBaseUrl: process.env.PUBLIC_API_URL || `http://localhost:${Number(process.env.PORT) || 3000}`,
+    },
+    r2: {
+      accountId: process.env.R2_ACCOUNT_ID,
+      accessKeyId: process.env.R2_ACCESS_KEY_ID,
+      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+      bucket: process.env.R2_BUCKET,
+    },
+  },
   admin: {
     fullName: process.env.ADMIN_FULL_NAME,
     email: process.env.ADMIN_EMAIL,

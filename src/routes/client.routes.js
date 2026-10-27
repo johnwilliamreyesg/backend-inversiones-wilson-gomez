@@ -7,11 +7,16 @@ const {
   updateClientSchema,
   listClientsQuerySchema,
 } = require('../validators/client.validators');
+const { createClientPhotoRoutes } = require('./client-photo.routes');
 
 // Mounted behind `authenticate` (see routes/index.js), so req.user always exists here.
 // Middleware order per route: permission check -> input validation -> controller.
-const createClientRoutes = ({ clientController }) => {
+const createClientRoutes = (controllers) => {
+  const { clientController } = controllers;
   const router = Router();
+
+  // Nested resource: /clients/:clientId/photos
+  router.use('/:clientId/photos', createClientPhotoRoutes(controllers));
 
   router.get(
     '/',
