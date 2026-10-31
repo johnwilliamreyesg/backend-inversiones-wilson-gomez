@@ -22,4 +22,26 @@ const optionalText = (maxLength) =>
     .nullish()
     .transform((value) => value || null);
 
-module.exports = { idParamSchema, paginationSchema, optionalText };
+// Calendar date as 'YYYY-MM-DD' (rejects impossible dates like 2026-02-30).
+const isoDate = (message = 'La fecha debe tener el formato AAAA-MM-DD.') =>
+  z.iso.date(message);
+
+// Money in pesos: positive, at most 2 decimals, fits NUMERIC(14,2).
+const MAX_AMOUNT = 999_999_999_999.99;
+const moneyAmount = z
+  .number('El valor debe ser un número.')
+  .positive('El valor debe ser mayor que cero.')
+  .max(MAX_AMOUNT, 'El valor es demasiado grande.')
+  .multipleOf(0.01, 'El valor admite máximo 2 decimales.');
+
+// Query-string boolean: only "true"/"false" (z.coerce.boolean would turn "false" into true).
+const queryBoolean = z.enum(['true', 'false']).transform((value) => value === 'true');
+
+module.exports = {
+  idParamSchema,
+  paginationSchema,
+  optionalText,
+  isoDate,
+  moneyAmount,
+  queryBoolean,
+};

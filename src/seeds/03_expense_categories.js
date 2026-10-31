@@ -4,5 +4,6 @@ const CATEGORIES = ['Transporte', 'Papelería', 'Servicios públicos', 'Nómina'
 exports.seed = (knex) =>
   knex('expense_categories')
     .insert(CATEGORIES.map((name) => ({ name })))
-    .onConflict('name')
+    // No conflict target: the unique index is on LOWER(name), an expression.
+    .onConflict()
     .ignore();

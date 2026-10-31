@@ -14,6 +14,9 @@ const nodeEnv = process.env.NODE_ENV || 'development';
 module.exports = {
   nodeEnv,
   isProduction: nodeEnv === 'production',
+  // Business dates ("today", due dates) follow the client's time zone,
+  // not the server's (a hosting server usually runs in UTC).
+  timeZone: process.env.APP_TIME_ZONE || 'America/Bogota',
   server: {
     port: Number(process.env.PORT) || 3000,
     // Comma-separated list of allowed frontend origins.

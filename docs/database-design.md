@@ -194,6 +194,9 @@ Estas reglas se validan **también** en el backend (para devolver mensajes claro
 | Lo pagado de una cuota no supera lo debido | `loan_installments_paid_check` |
 | Pago = capital + interés | `payments_split_check` |
 | Un crédito con pagos no se puede borrar | FK `payments.loan_id` con `ON DELETE RESTRICT` |
+| Nombre de categoría de gasto único sin importar mayúsculas | Índice único `expense_categories_name_lower_unique` sobre `LOWER(name)` |
+| Una categoría con gastos no se puede borrar (se desactiva) | FK `expenses.category_id` con `ON DELETE RESTRICT` |
+| Gasto mayor que cero | `expenses_amount_check` |
 | `updated_at` siempre al día | Trigger `set_updated_at()` en cada tabla |
 
 ## 4. Cómo sale cada reporte de la cotización

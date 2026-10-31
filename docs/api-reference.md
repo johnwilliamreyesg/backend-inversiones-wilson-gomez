@@ -225,3 +225,111 @@ await fetch(`/api/clients/${id}/photos/1`, { method: 'PUT', headers: { Authoriza
 ### `DELETE /clients/:clientId/photos/:position` → `204`
 
 Borra la foto y sus archivos. `404` si ese espacio estaba vacío.
+
+---
+
+## Categorías de gasto
+
+Catálogo pequeño (sin paginación). Las categorías **no se borran**, porque los gastos antiguos las referencian: se desactivan con `isActive: false` y dejan de ofrecerse para gastos nuevos.
+
+Permisos (fase 1, se reutilizan los de gastos): `expenses.read` para listar, `expenses.create` para crear, `expenses.update` para editar o desactivar.
+
+### Objeto `ExpenseCategory`
+
+```json
+{
+  "id": 1,
+  "name": "Transporte",
+  "isActive": true,
+  "createdAt": "2026-10-31T15:00:00.000Z",
+  "updatedAt": "2026-10-31T15:00:00.000Z"
+}
+```
+
+### `GET /expense-categories`
+
+Ordenadas por nombre. Por defecto solo las activas (para el selector del formulario de gasto).
+
+| Query             | Descripción                                                     |
+| ----------------- | --------------------------------------------------------------- |
+| `includeInactive` | `true` para incluir las inactivas (pantalla de administración) |
+
+### `POST /expense-categories` → `201`
+
+```json
+{ "name": "Mantenimiento" }
+```
+
+`name`: 2–100 caracteres. Único **sin importar mayúsculas**: si existe "Transporte", "TRANSPORTE" devuelve `409`.
+
+### `PATCH /expense-categories/:id`
+
+```json
+{ "name": "Transporte urbano", "isActive": false }
+```
+
+Uno o ambos campos. `404` si no existe; `409` si el nombre ya es de otra categoría.
+
+---
+
+## Gastos
+
+Permisos: `expenses.read`, `expenses.create`, `expenses.update`, `expenses.delete`. `createdBy` se llena con el usuario de la sesión.
+
+### Objeto `Expense`
+
+```json
+{
+  "id": 1,
+  "categoryId": 1,
+  "categoryName": "Transporte",
+  "expenseDate": "2026-10-31",
+  "amount": 15000,
+  "description": "Taxi a cobrar en Bosa",
+  "createdBy": 1,
+  "createdAt": "2026-10-31T15:00:00.000Z",
+  "updatedAt": "2026-10-31T15:00:00.000Z"
+}
+```
+
+`expenseDate` es una fecha sin hora (`AAAA-MM-DD`). `amount` es un número (pesos, máximo 2 decimales).
+
+### `GET /expenses`
+
+Lista paginada, del más reciente al más antiguo.
+
+| Query              | Descripción                                                      |
+| ------------------ | ---------------------------------------------------------------- |
+| `from`, `to`       | Rango de fechas `AAAA-MM-DD`, ambos incluidos; `from` ≤ `to`     |
+| `categoryId`       | Solo esa categoría                                               |
+| `search`           | Texto en la descripción (sin importar mayúsculas ni tildes)      |
+| `page`, `pageSize` | Paginación                                                       |
+
+`meta` trae además **`totalAmount`**: la suma de **todos** los gastos que cumplen el filtro (no solo los de la página). Sirve para mostrar "Total del mes: $ 1.250.000" sin otra petición.
+
+```json
+{ "page": 1, "pageSize": 20, "total": 3, "totalPages": 1, "totalAmount": 167000.5 }
+```
+
+### `GET /expenses/:id`
+
+`404` si no existe o fue eliminado.
+
+### `POST /expenses` → `201`
+
+| Campo         | Obligatorio | Reglas                                                                  |
+| ------------- | ----------- | ----------------------------------------------------------------------- |
+| `categoryId`  | Sí          | Categoría existente y **activa**                                        |
+| `expenseDate` | No          | `AAAA-MM-DD`; por defecto **hoy (hora de Colombia)**; no puede ser futura |
+| `amount`      | Sí          | Número (no texto) mayor que 0, máximo 2 decimales                       |
+| `description` | Sí          | 3–255 caracteres                                                        |
+
+Una categoría inexistente o inactiva devuelve `400` con `details` en el campo `categoryId`, para que el formulario lo marque.
+
+### `PATCH /expenses/:id`
+
+Actualización parcial con las mismas reglas. Un gasto puede seguir en una categoría que se desactivó después, pero no se puede **mover** a una categoría inactiva. Cuerpo vacío → `400`.
+
+### `DELETE /expenses/:id` → `204`
+
+Borrado lógico: desaparece de las listas y de los totales, pero queda en la base de datos.

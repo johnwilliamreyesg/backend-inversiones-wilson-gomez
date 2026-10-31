@@ -3,6 +3,8 @@ const { createHealthRoutes } = require('./health.routes');
 const { createAuthRoutes } = require('./auth.routes');
 const { createFileRoutes } = require('./file.routes');
 const { createClientRoutes } = require('./client.routes');
+const { createExpenseRoutes } = require('./expense.routes');
+const { createExpenseCategoryRoutes } = require('./expense-category.routes');
 
 // Single entry point for all API routes, mounted under /api in app.js.
 const createApiRouter = (controllers, middlewares) => {
@@ -19,6 +21,12 @@ const createApiRouter = (controllers, middlewares) => {
 
   // Everything below requires a logged-in user
   router.use('/clients', middlewares.authenticate, createClientRoutes(controllers));
+  router.use('/expenses', middlewares.authenticate, createExpenseRoutes(controllers));
+  router.use(
+    '/expense-categories',
+    middlewares.authenticate,
+    createExpenseCategoryRoutes(controllers),
+  );
 
   return router;
 };
