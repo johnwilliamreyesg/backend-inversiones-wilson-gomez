@@ -13,12 +13,16 @@ const { UserRepository } = require('./repositories/user.repository');
 const { RoleRepository } = require('./repositories/role.repository');
 const { ExpenseRepository } = require('./repositories/expense.repository');
 const { ExpenseCategoryRepository } = require('./repositories/expense-category.repository');
+const { PermissionRepository } = require('./repositories/permission.repository');
 const { HealthService } = require('./services/health.service');
 const { ClientService } = require('./services/client.service');
 const { ClientPhotoService } = require('./services/client-photo.service');
 const { AuthService } = require('./services/auth.service');
 const { ExpenseService } = require('./services/expense.service');
 const { ExpenseCategoryService } = require('./services/expense-category.service');
+const { ManagerSafeguard } = require('./services/manager-safeguard');
+const { UserService } = require('./services/user.service');
+const { RoleService } = require('./services/role.service');
 const { HealthController } = require('./controllers/health.controller');
 const { ClientController } = require('./controllers/client.controller');
 const { ClientPhotoController } = require('./controllers/client-photo.controller');
@@ -26,6 +30,8 @@ const { AuthController } = require('./controllers/auth.controller');
 const { FileController } = require('./controllers/file.controller');
 const { ExpenseController } = require('./controllers/expense.controller');
 const { ExpenseCategoryController } = require('./controllers/expense-category.controller');
+const { UserController } = require('./controllers/user.controller');
+const { RoleController } = require('./controllers/role.controller');
 const { createAuthenticate } = require('./middlewares/authenticate');
 
 /**
@@ -63,6 +69,7 @@ const createContainer = () => {
   const roleRepository = new RoleRepository({ db });
   const expenseRepository = new ExpenseRepository({ db });
   const expenseCategoryRepository = new ExpenseCategoryRepository({ db });
+  const permissionRepository = new PermissionRepository({ db });
 
   // Services
   const healthService = new HealthService({ healthRepository });
@@ -85,6 +92,18 @@ const createContainer = () => {
     expenseCategoryService,
     clock,
   });
+  const managerSafeguard = new ManagerSafeguard({ userRepository });
+  const userService = new UserService({
+    userRepository,
+    roleRepository,
+    passwordHasher,
+    managerSafeguard,
+  });
+  const roleService = new RoleService({
+    roleRepository,
+    permissionRepository,
+    managerSafeguard,
+  });
 
   // Controllers
   const healthController = new HealthController({ healthService });
@@ -93,6 +112,8 @@ const createContainer = () => {
   const authController = new AuthController({ authService });
   const expenseController = new ExpenseController({ expenseService });
   const expenseCategoryController = new ExpenseCategoryController({ expenseCategoryService });
+  const userController = new UserController({ userService });
+  const roleController = new RoleController({ roleService });
   // Only the local driver serves files through the API; R2 serves them itself.
   const fileController =
     env.storage.driver === 'local' ? new FileController({ fileStorage }) : null;
@@ -110,6 +131,8 @@ const createContainer = () => {
       fileController,
       expenseController,
       expenseCategoryController,
+      userController,
+      roleController,
     },
     middlewares: { authenticate },
   };

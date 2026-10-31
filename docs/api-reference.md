@@ -333,3 +333,126 @@ Actualización parcial con las mismas reglas. Un gasto puede seguir en una categ
 ### `DELETE /expenses/:id` → `204`
 
 Borrado lógico: desaparece de las listas y de los totales, pero queda en la base de datos.
+
+---
+
+## Usuarios
+
+Todas las rutas exigen el permiso **`users.manage`**. Los usuarios **no se borran** (los clientes y gastos guardan quién los creó): se desactivan con `isActive: false`.
+
+### Objeto `User`
+
+```json
+{
+  "id": 2,
+  "fullName": "Pedro Cobrador",
+  "email": "pedro@test.com",
+  "isActive": true,
+  "lastLoginAt": null,
+  "roleId": 2,
+  "roleName": "Cobrador",
+  "createdAt": "2026-10-31T15:00:00.000Z",
+  "updatedAt": "2026-10-31T15:00:00.000Z"
+}
+```
+
+Nunca incluye la contraseña ni su hash.
+
+### `GET /users`
+
+Lista paginada, ordenada por nombre.
+
+| Query              | Descripción                           |
+| ------------------ | ------------------------------------- |
+| `search`           | Nombre (sin importar tildes) o correo |
+| `roleId`           | Solo ese rol                          |
+| `isActive`         | `true` o `false`                      |
+| `page`, `pageSize` | Paginación                            |
+
+### `GET /users/:id`
+
+`404` si no existe.
+
+### `POST /users` → `201`
+
+| Campo      | Reglas                                                                  |
+| ---------- | ----------------------------------------------------------------------- |
+| `fullName` | 3–150 caracteres                                                        |
+| `email`    | Correo válido; se guarda en minúsculas; único (`409` si ya existe)      |
+| `password` | Contraseña inicial: mínimo 8 caracteres, al menos una letra y un número |
+| `roleId`   | Rol existente (`400` en `roleId` si no existe)                          |
+
+El administrador le comunica la contraseña inicial al usuario, y este la cambia con `PATCH /auth/password`.
+
+### `PATCH /users/:id`
+
+Campos opcionales: `fullName`, `email`, `roleId`, `isActive`.
+
+- **Desactivar** (`isActive: false`) cierra de inmediato todas las sesiones del usuario. Si después se reactiva, debe volver a iniciar sesión.
+- Un cambio de rol aplica desde la siguiente petición del usuario, sin que tenga que volver a entrar.
+- Nadie puede **desactivarse** ni **cambiarse el rol** a sí mismo (`400`).
+- `409` si el cambio dejaría el sistema sin ningún usuario activo con `users.manage`.
+
+### `PUT /users/:id/password` → `204`
+
+```json
+{ "newPassword": "Nueva1234" }
+```
+
+Restablece la contraseña de **otro** usuario (por ejemplo, si la olvidó) y cierra todas sus sesiones. Para la propia se usa `PATCH /auth/password`, que pide la actual (`400` si se intenta aquí).
+
+---
+
+## Roles y permisos
+
+Todas las rutas exigen **`users.manage`**. Los cambios de permisos aplican a los usuarios del rol desde su siguiente petición.
+
+### `GET /permissions`
+
+Catálogo fijo de permisos (lo define el seed), para dibujar las casillas del formulario de rol.
+
+```json
+{ "data": [{ "id": 1, "code": "clients.create", "description": "Crear clientes" }] }
+```
+
+### Objeto `Role`
+
+```json
+{
+  "id": 2,
+  "name": "Cobrador",
+  "description": "Cobra en la calle",
+  "permissions": ["clients.read", "payments.create", "payments.read"],
+  "userCount": 1,
+  "createdAt": "2026-10-31T15:00:00.000Z",
+  "updatedAt": "2026-10-31T15:00:00.000Z"
+}
+```
+
+`userCount` incluye a los usuarios inactivos.
+
+### `GET /roles` · `GET /roles/:id`
+
+Ordenados por nombre. `404` si el rol no existe.
+
+### `POST /roles` → `201`
+
+```json
+{ "name": "Cobrador", "description": "Cobra en la calle", "permissions": ["clients.read", "payments.create"] }
+```
+
+- `name`: 3–50 caracteres; único sin importar mayúsculas (`409`).
+- `permissions`: lista de códigos de `GET /permissions`; los repetidos se ignoran; un código que no existe → `400` en `permissions`. Puede ser `[]`.
+
+### `PATCH /roles/:id`
+
+Campos opcionales: `name`, `description`, `permissions`. Si se envía `permissions`, **reemplaza la lista completa**.
+
+### `DELETE /roles/:id` → `204`
+
+`409` si algún usuario tiene ese rol (incluidos los inactivos): primero hay que cambiarlos de rol.
+
+### Protecciones
+
+- El rol **`admin`** del sistema no se puede editar ni eliminar (`409`). Siempre tiene todos los permisos.
+- `409` si quitar `users.manage` de un rol dejaría el sistema sin ningún usuario activo que pueda administrar usuarios.

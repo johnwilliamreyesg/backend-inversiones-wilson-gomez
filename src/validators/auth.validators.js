@@ -30,4 +30,5 @@ const changePasswordSchema = z.object({
   newPassword,
 });
 
-module.exports = { loginSchema, changePasswordSchema };
+// newPassword is reused wherever a password is set (user creation, admin reset).
+module.exports = { loginSchema, changePasswordSchema, newPassword };
