@@ -208,7 +208,8 @@ Estas reglas se validan **también** en el backend (para devolver mensajes claro
 | Colocación diaria | `SUM(loans.principal_amount)` por `start_date` |
 | Recolección diaria de capital | `SUM(payments.principal_amount)` del día, sin anulados |
 | Consolidado mensual | Los cuatro anteriores agrupados por mes |
-| Efectividad de cobro mensual (%) | `SUM(cuotas pagadas del mes) / SUM(amount_due de cuotas que vencían en el mes) × 100` |
+| Efectividad de cobro mensual (%) | Lo cobrado (`payment_allocations` de pagos no anulados con fecha ≤ fin de mes) sobre las cuotas que vencían en el mes, dividido por su `SUM(amount_due)` × 100 |
+| Ganancia neta (agregado) | Intereses recaudados − gastos del período |
 
 ## 5. Decisiones de diseño (y por qué)
 

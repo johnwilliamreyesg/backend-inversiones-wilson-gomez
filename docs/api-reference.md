@@ -456,3 +456,287 @@ Campos opcionales: `name`, `description`, `permissions`. Si se envía `permissio
 
 - El rol **`admin`** del sistema no se puede editar ni eliminar (`409`). Siempre tiene todos los permisos.
 - `409` si quitar `users.manage` de un rol dejaría el sistema sin ningún usuario activo que pueda administrar usuarios.
+
+---
+
+## Créditos
+
+Permisos: `loans.read` (ver), `loans.create` (vista previa y crear), `loans.update` (cancelar).
+
+> ⚠️ Varias reglas de cálculo están **pendientes de confirmar con Wilson** y se pueden cambiar sin tocar el código (ver la sección "Reglas configurables" al final).
+
+### Frecuencias
+
+| `frequency` | Campos | Cómo se calcula |
+| ----------- | ------ | --------------- |
+| `monthly`   | `monthlyInterestRate` (obligatorio, % mensual), `numberOfInstallments` (opcional), `paymentDay` (opcional, 1–31) | Interés = tasa × saldo de capital. **Con** número de cuotas: capital en partes iguales + interés sobre el saldo (cada cuota es un poco menor). **Sin** número de cuotas: cada mes se cobra solo el interés y el capital se abona libremente. |
+| `biweekly`  | `installmentAmount` y `numberOfInstallments` (obligatorios) | Cuota pactada fija. El interés total (cuotas × valor − capital) se reparte por igual: $1.000.000 en 10 cuotas de $120.000 = $100.000 capital + $20.000 interés por cuota. |
+
+Fechas de las cuotas:
+
+- **Mensual:** el `paymentDay` de cada mes desde el mes siguiente al desembolso (por defecto, el mismo día del desembolso). Un 31 pasa a 30 o a 28/29 en meses más cortos.
+- **Quincenal:** cada 15 días desde el desembolso (configurable: ver abajo).
+
+### `POST /loans/preview`
+
+Calcula la proyección **sin guardar nada** (botón "Vista previa" del formulario). Mismo cuerpo que crear, sin `clientId`, `coDebtorId` ni `notes`.
+
+```json
+{ "frequency": "biweekly", "principalAmount": 1000000, "installmentAmount": 120000, "numberOfInstallments": 10 }
+```
+
+```json
+{
+  "data": {
+    "paymentDay": 15,
+    "installments": [
+      { "installmentNumber": 1, "dueDate": "2026-11-15", "principalDue": 100000, "interestDue": 20000, "amountDue": 120000 }
+    ],
+    "totals": { "principal": 1000000, "interest": 200000, "amount": 1200000 }
+  }
+}
+```
+
+### `POST /loans` → `201`
+
+| Campo                   | Reglas                                                                                                |
+| ----------------------- | ----------------------------------------------------------------------------------------------------- |
+| `clientId`              | Cliente existente                                                                                     |
+| `coDebtorId`            | Otro cliente existente, distinto del deudor                                                           |
+| `frequency`             | `monthly` o `biweekly`                                                                                |
+| `principalAmount`       | Valor prestado (número > 0)                                                                           |
+| `startDate`             | Fecha de desembolso `AAAA-MM-DD`; por defecto hoy; no futura. **Puede ser pasada**, para registrar los créditos que ya existen en el cuaderno (sus cuotas vencidas aparecen como atrasadas). |
+| `notes`                 | Opcional, máx. 2000                                                                                   |
+| + campos de la frecuencia | Ver tabla de frecuencias. Quincenal: las cuotas deben cubrir el capital.                            |
+
+Crea el crédito **y todas sus cuotas en una transacción**. Responde con el detalle (ver `GET /loans/:id`).
+
+### `GET /loans`
+
+Lista paginada, del desembolso más reciente al más antiguo. Cada crédito trae `clientName`, `clientNationalId` y `coDebtorName`.
+
+| Query              | Descripción                                                     |
+| ------------------ | --------------------------------------------------------------- |
+| `status`           | `active`, `paid_off`, `defaulted`, `cancelled`                  |
+| `frequency`        | `monthly`, `biweekly`                                           |
+| `clientId`         | Créditos donde ese cliente es deudor **o** codeudor             |
+| `search`           | Nombre (sin tildes) o cédula del deudor                         |
+| `page`, `pageSize` | Paginación                                                      |
+
+### `GET /loans/:id`
+
+El crédito con sus cuotas y un resumen:
+
+```json
+{
+  "data": {
+    "id": 1,
+    "clientName": "Ana Pérez",
+    "coDebtorName": "Luis Gómez",
+    "frequency": "biweekly",
+    "principalAmount": 1000000,
+    "principalBalance": 800000,
+    "status": "active",
+    "installments": [
+      {
+        "id": 1, "installmentNumber": 1, "dueDate": "2026-10-15",
+        "principalDue": 100000, "interestDue": 20000, "amountDue": 120000,
+        "principalPaid": 100000, "interestPaid": 20000, "status": "paid",
+        "amountPaid": 120000, "amountRemaining": 0, "isOverdue": false, "daysOverdue": 0
+      }
+    ],
+    "summary": {
+      "totalDue": 1200000, "totalPaid": 240000, "totalRemaining": 960000,
+      "overdueInstallments": 0, "overdueAmount": 0, "nextDueDate": "2026-11-14"
+    }
+  }
+}
+```
+
+Estados de cuota: `pending`, `partially_paid`, `paid`, `cancelled`. `isOverdue` / `daysOverdue` se calculan contra hoy (hora de Colombia): una cuota que vence hoy todavía no está atrasada.
+
+### `GET /clients/:clientId/loans`
+
+Créditos de un cliente separados por papel: `{ "asDebtor": [...], "asCoDebtor": [...] }`. `404` si el cliente no existe.
+
+### `POST /loans/:id/cancel`
+
+Para un crédito registrado por error. Solo si está `active` y **no tiene pagos** (anule los pagos primero); si no, `409`. Sus cuotas pendientes pasan a `cancelled`.
+
+---
+
+## Pagos
+
+Permisos: `payments.read`, `payments.create`, `payments.void`.
+
+### Cómo se reparte un pago
+
+1. Primero la cuota **más antigua**; dentro de cada cuota, primero el **interés** y luego el capital.
+2. **Créditos con plazo** (quincenales y mensuales con número de cuotas): se puede pagar por adelantado, pero nunca más de lo que se debe en total.
+3. **Mensuales sin plazo:** el pago cubre el interés de las cuotas ya vencidas; **lo que sobre es abono a capital**. Baja el saldo, y el interés de las cuotas futuras se recalcula con el nuevo saldo.
+4. Si el saldo llega a 0 y no queda nada pendiente, el crédito pasa a `paid_off`.
+
+Si el valor supera lo que se debe → `400` indicando el máximo a recibir.
+
+### `POST /loans/:loanId/payments` → `201`
+
+```json
+{ "amount": 120000, "paymentMethod": "cash", "paymentDate": "2026-10-31", "notes": "Pagó en la tienda" }
+```
+
+| Campo           | Reglas                                                                   |
+| --------------- | ------------------------------------------------------------------------ |
+| `amount`        | Número > 0, máx. 2 decimales                                             |
+| `paymentMethod` | `cash` (por defecto) o `transfer`                                        |
+| `paymentDate`   | Por defecto hoy; no futura ni anterior al desembolso                     |
+| `notes`         | Opcional                                                                 |
+
+`409` si el crédito está pagado o cancelado. Respuesta: el objeto `Payment` con su distribución:
+
+```json
+{
+  "data": {
+    "id": 3, "loanId": 1, "clientName": "Ana Pérez", "paymentDate": "2026-10-31",
+    "amount": 190000, "interestAmount": 20000, "principalAmount": 170000,
+    "paymentMethod": "transfer", "receivedByName": "Admin",
+    "voidedAt": null, "voidedByName": null, "voidReason": null,
+    "allocations": [
+      { "installmentId": 1, "installmentNumber": 1, "dueDate": "2026-10-15", "principalAmount": 70000, "interestAmount": 0 },
+      { "installmentId": 2, "installmentNumber": 2, "dueDate": "2026-10-30", "principalAmount": 100000, "interestAmount": 20000 }
+    ]
+  }
+}
+```
+
+Dos cobradores que registren un pago al mismo crédito al mismo tiempo no pueden cobrar dos veces la misma cuota: el segundo espera al primero y se calcula sobre lo que quede.
+
+### `GET /loans/:loanId/payments`
+
+Historial de pagos del crédito (incluye los anulados, marcados con `voidedAt`).
+
+### `GET /payments`
+
+Todos los pagos, del más reciente al más antiguo (por ejemplo, el cuadre de caja del día).
+
+| Query           | Descripción                                    |
+| --------------- | ---------------------------------------------- |
+| `from`, `to`    | Rango de fechas de pago                        |
+| `loanId`        | Solo ese crédito                               |
+| `receivedBy`    | Id del usuario que recibió el pago             |
+| `paymentMethod` | `cash` o `transfer`                            |
+| `includeVoided` | `true` para incluir los anulados en la lista   |
+
+`meta.totals` = `{ count, amount, principal, interest }` de **todos** los pagos no anulados del filtro.
+
+### `GET /payments/:id`
+
+### `POST /payments/:id/void`
+
+```json
+{ "reason": "Se registró en el crédito equivocado" }
+```
+
+Anula el pago (motivo obligatorio, mínimo 5 caracteres). Deshace todo: lo pagado de cada cuota, el saldo de capital y, si el crédito estaba pagado, lo reabre. El pago no se borra: queda con `voidedAt`, `voidedByName` y `voidReason`, y deja de contar en los reportes. `409` si ya estaba anulado.
+
+---
+
+## Cobros del día
+
+### `GET /collections`
+
+Permiso `payments.read`. Un registro por crédito con cuotas que vencen **hasta hoy** sin pagar, pensado para el celular del cobrador. Ordenado del atraso más antiguo al más reciente.
+
+| Query         | Descripción                                          |
+| ------------- | ---------------------------------------------------- |
+| `date`        | Otra fecha `AAAA-MM-DD` (por defecto hoy)            |
+| `frequency`   | `monthly` o `biweekly`                               |
+| `search`      | Nombre (sin tildes), cédula o dirección del cliente  |
+| `onlyOverdue` | `true` para solo los atrasados                       |
+
+```json
+{
+  "data": [
+    {
+      "loanId": 2, "frequency": "monthly", "principalBalance": 2000000,
+      "clientId": 2, "clientName": "Luis Gómez", "clientPhoneCountryCode": "+57",
+      "clientPhoneNumber": "3001234567", "clientAddress": "Calle 4 # 5-6",
+      "coDebtorName": "Marta Ruiz", "coDebtorPhoneNumber": "3007654321",
+      "installmentsDue": 2, "oldestDueDate": "2026-09-30", "amountDue": 200000,
+      "daysOverdue": 31, "isOverdue": true
+    }
+  ],
+  "meta": {
+    "date": "2026-10-31", "loans": 1, "overdueLoans": 1, "amountDue": 200000,
+    "collected": { "count": 0, "amount": 0, "principal": 0, "interest": 0 }
+  }
+}
+```
+
+`meta.collected` = lo ya cobrado en esa fecha.
+
+---
+
+## Reportes
+
+Permiso `reports.read`. Siempre excluyen pagos anulados, créditos cancelados y gastos eliminados. El reporte 1 de la cotización (listado diario de cobros) es `GET /collections`.
+
+**Ganancia neta** = intereses recaudados − gastos. (El capital que regresa es dinero del prestamista que vuelve, no ganancia.)
+
+### `GET /reports/daily`
+
+Reportes 2, 3 y 4 de la cotización: ganancia, colocación y recolección de capital **por día**. Incluye los días sin movimiento (en 0).
+
+Query: `from`, `to` (por defecto, del 1 del mes actual a hoy; máximo 366 días).
+
+```json
+{
+  "data": {
+    "from": "2026-10-01", "to": "2026-10-31",
+    "rows": [
+      {
+        "date": "2026-10-31", "interestCollected": 340000, "principalCollected": 2700000,
+        "totalCollected": 3040000, "paymentsCount": 4, "disbursed": 300000, "loansCreated": 1,
+        "expenses": 40000, "netProfit": 300000
+      }
+    ],
+    "totals": { "interestCollected": 340000, "...": "mismos campos sumados" }
+  }
+}
+```
+
+### `GET /reports/monthly`
+
+Reportes 5 y 6: consolidado mensual y **efectividad de cobro**. Query: `year` (por defecto el actual). Siempre 12 filas (`month`: `"2026-10"`), con los mismos campos del diario más:
+
+| Campo                  | Significado                                                                 |
+| ---------------------- | --------------------------------------------------------------------------- |
+| `installmentsDue`      | Cuotas que vencían en el mes                                                |
+| `amountDue`            | Lo que sumaban                                                              |
+| `amountCollectedOnDue` | Lo cobrado sobre **esas** cuotas hasta el último día del mismo mes          |
+| `effectiveness`        | `amountCollectedOnDue / amountDue × 100` (2 decimales); `null` si no vencía nada |
+
+Un pago atrasado que llega el mes siguiente **no** mejora la efectividad del mes en que vencía la cuota. Es justamente lo que mide el indicador.
+
+### `GET /reports/portfolio`
+
+Foto actual para la pantalla de inicio:
+
+```json
+{
+  "data": {
+    "date": "2026-10-31", "openLoans": 2, "principalOutstanding": 600000,
+    "overdueLoans": 0, "overdueAmount": 0, "clients": 3
+  }
+}
+```
+
+---
+
+## Reglas configurables (pendientes de confirmar con Wilson)
+
+| Variable `.env`      | Valores                                          | Por defecto     |
+| -------------------- | ------------------------------------------------ | --------------- |
+| `LOAN_ROUNDING_UNIT` | Redondeo de interés/capital en pesos: `1`, `100`, `1000` | `1`       |
+| `BIWEEKLY_DUE_DATES` | `every_15_days` (cada 15 días desde el desembolso) o `fixed_15_and_end_of_month` (el 15 y el último día de cada mes; se salta una fecha a menos de 8 días del desembolso) | `every_15_days` |
+
+Cambiarlas afecta **solo a los créditos nuevos**: las cuotas de los existentes ya están guardadas.
