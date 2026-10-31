@@ -18,6 +18,7 @@ const { PermissionRepository } = require('./repositories/permission.repository')
 const { LoanInstallmentRepository } = require('./repositories/loan-installment.repository');
 const { PaymentRepository } = require('./repositories/payment.repository');
 const { PaymentAllocationRepository } = require('./repositories/payment-allocation.repository');
+const { ReportRepository } = require('./repositories/report.repository');
 const { HealthService } = require('./services/health.service');
 const { ClientService } = require('./services/client.service');
 const { ClientPhotoService } = require('./services/client-photo.service');
@@ -35,6 +36,7 @@ const { LoanScheduleKeeper } = require('./services/loan-schedules/loan-schedule-
 const { PaymentService } = require('./services/payment.service');
 const { PaymentAllocator } = require('./services/payments/payment-allocator');
 const { CollectionService } = require('./services/collection.service');
+const { ReportService } = require('./services/report.service');
 const { HealthController } = require('./controllers/health.controller');
 const { ClientController } = require('./controllers/client.controller');
 const { ClientPhotoController } = require('./controllers/client-photo.controller');
@@ -47,6 +49,7 @@ const { RoleController } = require('./controllers/role.controller');
 const { LoanController } = require('./controllers/loan.controller');
 const { PaymentController } = require('./controllers/payment.controller');
 const { CollectionController } = require('./controllers/collection.controller');
+const { ReportController } = require('./controllers/report.controller');
 const { createAuthenticate } = require('./middlewares/authenticate');
 
 /**
@@ -102,6 +105,7 @@ const createContainer = () => {
   const loanInstallmentRepository = new LoanInstallmentRepository({ db });
   const paymentRepository = new PaymentRepository({ db });
   const paymentAllocationRepository = new PaymentAllocationRepository({ db });
+  const reportRepository = new ReportRepository({ db });
 
   // Services
   const healthService = new HealthService({ healthRepository });
@@ -157,6 +161,7 @@ const createContainer = () => {
     scheduleKeeper,
     clock,
   });
+  const reportService = new ReportService({ reportRepository, clock });
   const managerSafeguard = new ManagerSafeguard({ userRepository });
   const userService = new UserService({
     userRepository,
@@ -182,6 +187,7 @@ const createContainer = () => {
   const loanController = new LoanController({ loanService });
   const paymentController = new PaymentController({ paymentService });
   const collectionController = new CollectionController({ collectionService });
+  const reportController = new ReportController({ reportService });
   // Only the local driver serves files through the API; R2 serves them itself.
   const fileController =
     env.storage.driver === 'local' ? new FileController({ fileStorage }) : null;
@@ -204,6 +210,7 @@ const createContainer = () => {
       loanController,
       paymentController,
       collectionController,
+      reportController,
     },
     middlewares: { authenticate },
   };

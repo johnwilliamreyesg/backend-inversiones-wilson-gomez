@@ -8,6 +8,7 @@ const { createExpenseCategoryRoutes } = require('./expense-category.routes');
 const { createUserRoutes } = require('./user.routes');
 const { createLoanRoutes } = require('./loan.routes');
 const { createPaymentRoutes, createCollectionRoutes } = require('./payment.routes');
+const { createReportRoutes } = require('./report.routes');
 const { createRoleRoutes, createPermissionRoutes } = require('./role.routes');
 
 // Single entry point for all API routes, mounted under /api in app.js.
@@ -28,6 +29,7 @@ const createApiRouter = (controllers, middlewares) => {
   router.use('/loans', middlewares.authenticate, createLoanRoutes(controllers));
   router.use('/payments', middlewares.authenticate, createPaymentRoutes(controllers));
   router.use('/collections', middlewares.authenticate, createCollectionRoutes(controllers));
+  router.use('/reports', middlewares.authenticate, createReportRoutes(controllers));
   router.use('/expenses', middlewares.authenticate, createExpenseRoutes(controllers));
   router.use(
     '/expense-categories',
