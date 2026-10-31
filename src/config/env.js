@@ -17,6 +17,13 @@ module.exports = {
   // Business dates ("today", due dates) follow the client's time zone,
   // not the server's (a hosting server usually runs in UTC).
   timeZone: process.env.APP_TIME_ZONE || 'America/Bogota',
+  // Loan rules still pending confirmation from the client, kept configurable.
+  loans: {
+    // Installments and interest are rounded to this many pesos (1, 100, 1000...).
+    roundingUnit: Number(process.env.LOAN_ROUNDING_UNIT) || 1,
+    // 'every_15_days' or 'fixed_15_and_end_of_month'.
+    biweeklyDueDates: process.env.BIWEEKLY_DUE_DATES || 'every_15_days',
+  },
   server: {
     port: Number(process.env.PORT) || 3000,
     // Comma-separated list of allowed frontend origins.

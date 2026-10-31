@@ -7,6 +7,7 @@ const {
   updateClientSchema,
   listClientsQuerySchema,
 } = require('../validators/client.validators');
+const { clientIdParamSchema } = require('../validators/loan.validators');
 const { createClientPhotoRoutes } = require('./client-photo.routes');
 
 // Mounted behind `authenticate` (see routes/index.js), so req.user always exists here.
@@ -17,6 +18,14 @@ const createClientRoutes = (controllers) => {
 
   // Nested resource: /clients/:clientId/photos
   router.use('/:clientId/photos', createClientPhotoRoutes(controllers));
+
+  // Loans of a client, as debtor and as co-debtor
+  router.get(
+    '/:clientId/loans',
+    authorize('loans.read'),
+    validateRequest({ params: clientIdParamSchema }),
+    controllers.loanController.listByClient,
+  );
 
   router.get(
     '/',
