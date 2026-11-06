@@ -8,6 +8,7 @@ const PERMISSIONS = [
   { code: 'loans.read', description: 'Ver créditos' },
   { code: 'loans.create', description: 'Crear créditos' },
   { code: 'loans.update', description: 'Editar créditos' },
+  { code: 'interest_rates.manage', description: 'Administrar tasas de interés' },
   { code: 'payments.read', description: 'Ver cobros' },
   { code: 'payments.create', description: 'Registrar cobros' },
   { code: 'payments.void', description: 'Anular cobros' },

@@ -60,6 +60,22 @@ class BiweeklyScheduleStrategy {
     return { paymentDay: parse(dueDates[0]).day, installments };
   }
 
+  /**
+   * Interest of installments recalculated after a principal prepayment
+   * (InstallmentRescheduler). There is no rate: each installment keeps the
+   * share of its interest that matches the principal it still carries
+   * (half the principal, half the interest; no principal, no interest).
+   */
+  rescheduledInterestCents({ installments, principalsCents }) {
+    return installments.map((installment, index) => {
+      const before = toCents(installment.principalDue);
+      const after = principalsCents[index];
+      if (after === 0) return 0;
+      if (before === 0) return toCents(installment.interestDue);
+      return roundCents((toCents(installment.interestDue) * after) / before, this.roundingUnitCents);
+    });
+  }
+
   dueDates(startDate, count) {
     if (this.dueDateRule === DUE_DATE_RULES.EVERY_15_DAYS) {
       return Array.from({ length: count }, (_, index) => addDays(startDate, 15 * (index + 1)));

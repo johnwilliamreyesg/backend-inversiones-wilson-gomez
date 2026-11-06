@@ -469,7 +469,7 @@ Permisos: `loans.read` (ver), `loans.create` (vista previa y crear), `loans.upda
 
 | `frequency` | Campos | Cómo se calcula |
 | ----------- | ------ | --------------- |
-| `monthly`   | `monthlyInterestRate` (obligatorio, % mensual), `numberOfInstallments` (opcional), `paymentDay` (opcional, 1–31) | Interés = tasa × saldo de capital. **Con** número de cuotas: capital en partes iguales + interés sobre el saldo (cada cuota es un poco menor). **Sin** número de cuotas: cada mes se cobra solo el interés y el capital se abona libremente. |
+| `monthly`   | `monthlyInterestRate` (obligatorio, % mensual; **debe ser una tasa activa del catálogo**, ver "Tasas de interés"), `numberOfInstallments` (opcional), `paymentDay` (opcional, 1–31) | Interés = tasa × saldo de capital. **Con** número de cuotas: capital en partes iguales + interés sobre el saldo (cada cuota es un poco menor). **Sin** número de cuotas: cada mes se cobra solo el interés y el capital se abona libremente. |
 | `biweekly`  | `installmentAmount` y `numberOfInstallments` (obligatorios) | Cuota pactada fija. El interés total (cuotas × valor − capital) se reparte por igual: $1.000.000 en 10 cuotas de $120.000 = $100.000 capital + $20.000 interés por cuota. |
 
 Fechas de las cuotas:
@@ -565,18 +565,60 @@ Para un crédito registrado por error. Solo si está `active` y **no tiene pagos
 
 ---
 
+## Tasas de interés
+
+Catálogo de tasas mensuales que se pueden elegir al crear un crédito mensual (inicialmente 2 % a 10 %). Un crédito mensual con una tasa que no está en el catálogo, o que está inactiva, recibe `400` en `monthlyInterestRate` (también en la vista previa). El crédito **copia** el valor de la tasa, así que cambiar o desactivar una tasa nunca altera créditos existentes. Las tasas no se borran: se desactivan.
+
+Permisos: `loans.create` (ver el catálogo), `interest_rates.manage` (crear y editar).
+
+### Objeto `InterestRate`
+
+```json
+{ "id": 4, "rate": 5, "isActive": true, "createdAt": "…", "updatedAt": "…" }
+```
+
+### `GET /interest-rates`
+
+Tasas activas, de menor a mayor. `?includeInactive=true` incluye las inactivas.
+
+### `POST /interest-rates` → `201`
+
+```json
+{ "rate": 2.5 }
+```
+
+`rate`: % mensual, mayor que 0, máximo 100, hasta 2 decimales. `409` si ya existe.
+
+### `PATCH /interest-rates/:id`
+
+`rate` y/o `isActive`.
+
+---
+
 ## Pagos
 
 Permisos: `payments.read`, `payments.create`, `payments.void`.
 
-### Cómo se reparte un pago
+### Tipos de pago (`paymentType`)
 
-1. Primero la cuota **más antigua**; dentro de cada cuota, primero el **interés** y luego el capital.
-2. **Créditos con plazo** (quincenales y mensuales con número de cuotas): se puede pagar por adelantado, pero nunca más de lo que se debe en total.
-3. **Mensuales sin plazo:** el pago cubre el interés de las cuotas ya vencidas; **lo que sobre es abono a capital**. Baja el saldo, y el interés de las cuotas futuras se recalcula con el nuevo saldo.
-4. Si el saldo llega a 0 y no queda nada pendiente, el crédito pasa a `paid_off`.
+| `paymentType` | Para qué | Cómo se reparte |
+| --- | --- | --- |
+| `installment` (por defecto) | Pagar cuotas | 1. Primero la cuota **más antigua**; dentro de cada cuota, primero el **interés** y luego el capital. 2. **Créditos con plazo** (quincenales y mensuales con número de cuotas): se puede pagar por adelantado, pero nunca más de lo que se debe en total. 3. **Mensuales sin plazo:** cubre el interés de las cuotas ya vencidas; **lo que sobre es abono a capital**. |
+| `interest_only` | El cliente no tiene para la cuota completa y abona solo los intereses | Solo interés, de la más antigua a la más nueva: cuotas vencidas + la cuota del período en curso (la siguiente por vencer). **El capital de esas cuotas queda pendiente, en mora.** Si supera los intereses pendientes → `400` con el máximo. |
+| `principal` | Abono a capital | 1. El **interés vencido** de todas las cuotas vencidas. 2. El **capital vencido**. 3. Lo que sobra **baja el saldo**: en mensuales sin plazo el interés de los meses siguientes se recalcula; en créditos con plazo se recalculan las cuotas que faltan según `recalculation`. |
 
-Si el valor supera lo que se debe → `400` indicando el máximo a recibir.
+`recalculation` (solo con `principal`, **obligatorio** cuando el abono cambia las cuotas de un crédito con plazo):
+
+| Valor | Efecto en las cuotas que faltan |
+| --- | --- |
+| `reduce_installment` | Mismo número de cuotas, cada una más pequeña: el capital que queda se reparte por igual. |
+| `reduce_term` | El abono se descuenta desde la **última** cuota hacia atrás: las últimas desaparecen (`cancelled`) y las demás quedan casi iguales. |
+
+El interés de las cuotas recalculadas: **mensual** = tasa × saldo antes de cada cuota; **quincenal** (no tiene tasa) = cada cuota conserva la parte de su interés proporcional al capital que todavía lleva (la mitad del capital → la mitad del interés).
+
+Solo se recalculan las cuotas futuras **sin ningún pago**: una cuota pagada parcialmente por adelantado queda como estaba, y por eso el abono máximo es el capital de las cuotas futuras sin pagos.
+
+En todos los tipos: si el saldo llega a 0 y no queda nada pendiente, el crédito pasa a `paid_off`. Si el valor supera lo permitido → `400` indicando el máximo a recibir.
 
 ### `POST /loans/:loanId/payments` → `201`
 
@@ -584,10 +626,18 @@ Si el valor supera lo que se debe → `400` indicando el máximo a recibir.
 { "amount": 120000, "paymentMethod": "cash", "paymentDate": "2026-10-31", "notes": "Pagó en la tienda" }
 ```
 
+Abono a capital que acorta el plazo:
+
+```json
+{ "amount": 500000, "paymentType": "principal", "recalculation": "reduce_term" }
+```
+
 | Campo           | Reglas                                                                   |
 | --------------- | ------------------------------------------------------------------------ |
 | `amount`        | Número > 0, máx. 2 decimales                                             |
 | `paymentMethod` | `cash` (por defecto) o `transfer`                                        |
+| `paymentType`   | `installment` (por defecto), `interest_only` o `principal`               |
+| `recalculation` | `reduce_installment` o `reduce_term`; solo con `principal`               |
 | `paymentDate`   | Por defecto hoy; no futura ni anterior al desembolso                     |
 | `notes`         | Opcional                                                                 |
 
@@ -598,7 +648,7 @@ Si el valor supera lo que se debe → `400` indicando el máximo a recibir.
   "data": {
     "id": 3, "loanId": 1, "clientName": "Ana Pérez", "paymentDate": "2026-10-31",
     "amount": 190000, "interestAmount": 20000, "principalAmount": 170000,
-    "paymentMethod": "transfer", "receivedByName": "Admin",
+    "paymentMethod": "transfer", "paymentType": "installment", "recalculation": null, "receivedByName": "Admin",
     "voidedAt": null, "voidedByName": null, "voidReason": null,
     "allocations": [
       { "installmentId": 1, "installmentNumber": 1, "dueDate": "2026-10-15", "principalAmount": 70000, "interestAmount": 0 },
@@ -637,6 +687,8 @@ Todos los pagos, del más reciente al más antiguo (por ejemplo, el cuadre de ca
 ```
 
 Anula el pago (motivo obligatorio, mínimo 5 caracteres). Deshace todo: lo pagado de cada cuota, el saldo de capital y, si el crédito estaba pagado, lo reabre. El pago no se borra: queda con `voidedAt`, `voidedByName` y `voidReason`, y deja de contar en los reportes. `409` si ya estaba anulado.
+
+Si era un abono a capital que recalculó las cuotas, las cuotas vuelven **exactamente** a como estaban (se guardaron en `payment_schedule_changes`). Solo se puede anular si no hay pagos registrados después de él en ese crédito (`409` "Anule primero los pagos registrados después de él"): esos pagos se repartieron sobre las cuotas ya recalculadas.
 
 ---
 

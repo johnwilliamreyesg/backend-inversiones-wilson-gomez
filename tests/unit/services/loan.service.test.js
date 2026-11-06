@@ -5,6 +5,7 @@ const { LoanScheduleCalculator } = require('../../../src/services/loan-schedules
 const { MonthlyScheduleStrategy } = require('../../../src/services/loan-schedules/monthly-schedule-strategy');
 const { BiweeklyScheduleStrategy } = require('../../../src/services/loan-schedules/biweekly-schedule-strategy');
 const { LoanScheduleKeeper } = require('../../../src/services/loan-schedules/loan-schedule-keeper');
+const { InterestRateService } = require('../../../src/services/interest-rate.service');
 const { NotFoundError, ConflictError, ValidationError } = require('../../../src/errors/app-error');
 
 const TODAY = '2026-10-31';
@@ -44,6 +45,13 @@ const createFakes = ({ activePayments = 0 } = {}) => {
       },
     },
     paymentRepository: { countActiveByLoanId: async () => activePayments },
+    // Catalog: 2 % to 10 %, with 7 % deactivated.
+    interestRateService: new InterestRateService({
+      interestRateRepository: {
+        findByRate: async (rate) => (rate >= 2 && rate <= 10 && Number.isInteger(rate) ? { id: rate, rate, isActive: rate !== 7 } : undefined),
+        findAll: async () => [2, 3, 4, 5, 6, 8, 9, 10].map((rate) => ({ id: rate, rate, isActive: true })),
+      },
+    }),
     clientRepository: { findById: async (id) => (id <= 2 ? { id } : undefined) },
     transactionManager: { run: (work) => work('trx') },
   };
@@ -168,10 +176,39 @@ describe('LoanService', () => {
     assert.equal(loan.installments.length, 1);
   });
 
-  it('preview calculates without saving', () => {
-    const result = service.preview({ ...BIWEEKLY, clientId: undefined, coDebtorId: undefined });
+  it('preview calculates without saving', async () => {
+    const result = await service.preview({ ...BIWEEKLY, clientId: undefined, coDebtorId: undefined });
     assert.equal(result.installments.length, 10);
     assert.equal(fakes.loans.length, 0);
+  });
+
+  describe('interest rate catalog', () => {
+    const MONTHLY = { clientId: 1, coDebtorId: 2, frequency: 'monthly', principalAmount: 1_000_000 };
+    const isRateError = (error) =>
+      error instanceof ValidationError && error.details[0].field === 'monthlyInterestRate';
+
+    it('accepts an active rate of the catalog', async () => {
+      const loan = await service.create({ ...MONTHLY, monthlyInterestRate: 5 });
+      assert.equal(loan.monthlyInterestRate, 5);
+    });
+
+    it('rejects a rate outside the catalog, listing the allowed ones', async () => {
+      await assert.rejects(
+        service.create({ ...MONTHLY, monthlyInterestRate: 12 }),
+        (error) => isRateError(error) && /2 %, 3 %/.test(error.message),
+      );
+      assert.equal(fakes.loans.length, 0);
+    });
+
+    it('rejects a deactivated rate, also in the preview', async () => {
+      await assert.rejects(service.create({ ...MONTHLY, monthlyInterestRate: 7 }), isRateError);
+      await assert.rejects(service.preview({ ...MONTHLY, monthlyInterestRate: 7 }), isRateError);
+    });
+
+    it('biweekly loans have no rate and skip the catalog', async () => {
+      await service.create(BIWEEKLY);
+      assert.equal(fakes.loans[0].monthlyInterestRate, null);
+    });
   });
 
   describe('cancel', () => {

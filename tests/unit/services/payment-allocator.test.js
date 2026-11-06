@@ -82,6 +82,70 @@ describe('PaymentAllocator — open-ended monthly loans', () => {
   });
 });
 
+describe('PaymentAllocator — interest only', () => {
+  // Installments 1 and 2 are due on 2026-10-31; 3 is the current one.
+  const base = { installments: FIXED, isOpenEnded: false, paymentDate: '2026-10-31', paymentType: 'interest_only' };
+
+  it('pays only interest, oldest first; the principal stays pending', () => {
+    const result = allocator.allocate({ ...base, amount: 40_000 });
+    assert.deepEqual(pesos(result), { allocations: [[1, 20_000, 0], [2, 20_000, 0]], extra: 0 });
+  });
+
+  it('reaches the interest of the current installment, never the following ones', () => {
+    assert.equal(allocator.allocate({ ...base, amount: 60_000 }).allocations.length, 3);
+    const notDueYet = [...FIXED, installment(4, '2026-11-29', 100_000, 20_000)];
+    assert.throws(
+      () => allocator.allocate({ ...base, installments: notDueYet, amount: 60_001 }),
+      (error) => error instanceof ValidationError && /60\.000/.test(error.message),
+    );
+  });
+
+  it('says so when there is no interest left to pay', () => {
+    const paid = FIXED.map((row) => ({ ...row, interestPaid: row.interestDue }));
+    assert.throws(() => allocator.allocate({ ...base, installments: paid, amount: 1_000 }), /No hay intereses/);
+  });
+});
+
+describe('PaymentAllocator — principal prepayment (abono a capital)', () => {
+  const base = { installments: FIXED, isOpenEnded: false, paymentDate: '2026-10-31', paymentType: 'principal' };
+
+  it('covers the overdue interest of every installment before any principal', () => {
+    const result = allocator.allocate({ ...base, amount: 30_000 });
+    assert.deepEqual(pesos(result), { allocations: [[1, 20_000, 0], [2, 10_000, 0]], extra: 0 });
+  });
+
+  it('then the overdue principal; the rest is a prepayment of the future installments', () => {
+    const result = allocator.allocate({ ...base, amount: 300_000 });
+    assert.deepEqual(pesos(result), { allocations: [[1, 20_000, 100_000], [2, 20_000, 100_000]], extra: 60_000 });
+  });
+
+  it('can prepay at most the principal of the future installments, never their interest', () => {
+    assert.equal(allocator.allocate({ ...base, amount: 340_000 }).extraPrincipalCents, 100_000 * 100);
+    assert.throws(
+      () => allocator.allocate({ ...base, amount: 340_001 }),
+      (error) => error instanceof ValidationError && /340\.000/.test(error.message),
+    );
+  });
+
+  it('a future installment already partly paid ahead is not prepaid', () => {
+    const installments = [...FIXED.slice(0, 2), installment(3, '2026-11-14', 100_000, 20_000, { interest: 5_000 })];
+    assert.throws(() => allocator.allocate({ ...base, installments, amount: 240_001 }), ValidationError);
+  });
+
+  it('open-ended loans: due interest first, the rest lowers the balance', () => {
+    const OPEN = [installment(1, '2026-10-31', 0, 100_000), installment(2, '2026-11-30', 0, 100_000)];
+    const result = allocator.allocate({
+      amount: 600_000,
+      installments: OPEN,
+      isOpenEnded: true,
+      paymentDate: '2026-10-31',
+      principalBalance: 2_000_000,
+      paymentType: 'principal',
+    });
+    assert.deepEqual(pesos(result), { allocations: [[1, 100_000, 0]], extra: 500_000 });
+  });
+});
+
 describe('installmentStatusFor', () => {
   it('pending, partially paid or paid', () => {
     const due = { principalDue: 100_000, interestDue: 20_000 };

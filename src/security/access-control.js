@@ -8,4 +8,7 @@ const USERS_MANAGE_PERMISSION = 'users.manage';
 // deleted from the API (the seed would undo the change anyway).
 const ADMIN_ROLE_NAME = 'admin';
 
-module.exports = { USERS_MANAGE_PERMISSION, ADMIN_ROLE_NAME };
+// Permission that allows changing the catalog of interest rates.
+const INTEREST_RATES_MANAGE_PERMISSION = 'interest_rates.manage';
+
+module.exports = { USERS_MANAGE_PERMISSION, ADMIN_ROLE_NAME, INTEREST_RATES_MANAGE_PERMISSION };

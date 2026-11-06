@@ -1,5 +1,6 @@
 const { z } = require('../config/validation');
 const { paginationSchema, optionalText, isoDate, moneyAmount } = require('./common.validators');
+const { interestRateValue } = require('./interest-rate.validators');
 
 const MAX_INSTALLMENTS = 120;
 
@@ -25,12 +26,9 @@ const baseTerms = {
 const monthlyTerms = z.object({
   ...baseTerms,
   frequency: z.literal('monthly'),
-  // Percentage per month: 10 means 10 %. NUMERIC(5,2) in the database.
-  monthlyInterestRate: z
-    .number('La tasa de interés es obligatoria.')
-    .positive('La tasa debe ser mayor que cero.')
-    .max(100, 'La tasa mensual no puede superar el 100 %.')
-    .multipleOf(0.01, 'La tasa admite máximo 2 decimales.'),
+  // Percentage per month: 10 means 10 %. The service also checks that it is
+  // an active rate of the catalog (interest_rates).
+  monthlyInterestRate: interestRateValue,
   // Empty = open-ended (only interest each month, principal paid freely).
   numberOfInstallments: numberOfInstallments.optional(),
   paymentDay: z.coerce.number().int().min(1).max(31, 'El día de pago debe estar entre 1 y 31.').optional(),

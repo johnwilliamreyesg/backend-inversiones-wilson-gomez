@@ -2,6 +2,7 @@ const { NotFoundError, ConflictError, ValidationError } = require('../errors/app
 const { OPEN_STATUSES: OPEN_INSTALLMENT_STATUSES } = require('../repositories/loan-installment.repository');
 const { LoanScheduleKeeper } = require('./loan-schedules/loan-schedule-keeper');
 const { installmentStatusFor } = require('./payments/installment-status');
+const { PAYMENT_TYPES, isUntouchedFuture } = require('./payments/payment-types');
 const { toCents, fromCents } = require('../utils/money');
 
 // Loans that can still receive money.
@@ -21,7 +22,9 @@ class PaymentService {
     loanInstallmentRepository,
     paymentRepository,
     paymentAllocationRepository,
+    paymentScheduleChangeRepository,
     paymentAllocator,
+    installmentRescheduler,
     scheduleKeeper,
     transactionManager,
     clock,
@@ -30,13 +33,19 @@ class PaymentService {
     this.loanInstallmentRepository = loanInstallmentRepository;
     this.paymentRepository = paymentRepository;
     this.paymentAllocationRepository = paymentAllocationRepository;
+    this.paymentScheduleChangeRepository = paymentScheduleChangeRepository;
     this.paymentAllocator = paymentAllocator;
+    this.installmentRescheduler = installmentRescheduler;
     this.scheduleKeeper = scheduleKeeper;
     this.transactionManager = transactionManager;
     this.clock = clock;
   }
 
-  async register(loanId, { amount, paymentDate: requestedDate, paymentMethod, notes }, { userId = null } = {}) {
+  async register(
+    loanId,
+    { amount, paymentDate: requestedDate, paymentMethod, paymentType = PAYMENT_TYPES.INSTALLMENT, recalculation, notes },
+    { userId = null } = {},
+  ) {
     const today = this.clock.today();
     const paymentDate = requestedDate ?? today;
     if (paymentDate > today) throw fieldError('paymentDate', 'La fecha del pago no puede ser futura.');
@@ -54,14 +63,24 @@ class PaymentService {
       await this.scheduleKeeper.keepCurrent(loan, { trx });
       const installments = await this.loanInstallmentRepository.findByLoanId(loanId, { trx, forUpdate: true });
       const isOpenEnded = LoanScheduleKeeper.isOpenEnded(loan);
+      const openInstallments = installments.filter(({ status }) => OPEN_INSTALLMENT_STATUSES.includes(status));
 
       const { allocations, extraPrincipalCents } = this.paymentAllocator.allocate({
         amount,
-        installments: installments.filter(({ status }) => OPEN_INSTALLMENT_STATUSES.includes(status)),
+        installments: openInstallments,
         isOpenEnded,
         paymentDate,
         principalBalance: loan.principalBalance,
+        paymentType,
       });
+
+      // A prepayment beyond what is due changes the installments still to come
+      // of a fixed-term loan (open-ended ones just reprice their interest).
+      const reschedules = !isOpenEnded && extraPrincipalCents > 0;
+      if (reschedules && !recalculation) {
+        throw fieldError('recalculation', 'Elija si el abono baja el valor de las cuotas o acorta el plazo.');
+      }
+      const futureInstallments = openInstallments.filter((installment) => isUntouchedFuture(installment, paymentDate));
 
       const interestCents = allocations.reduce((total, a) => total + a.interestCents, 0);
       const principalCents =
@@ -75,6 +94,8 @@ class PaymentService {
           principalAmount: fromCents(principalCents),
           interestAmount: fromCents(interestCents),
           paymentMethod,
+          paymentType,
+          recalculation: reschedules ? recalculation : null,
           notes: notes ?? null,
           receivedBy: userId,
         },
@@ -94,6 +115,15 @@ class PaymentService {
       for (const a of allocations) {
         const installment = byId.get(a.installmentId);
         await this.applyToInstallment(installment, a.principalCents, a.interestCents, { trx });
+      }
+
+      if (reschedules) {
+        await this.rescheduleFutureInstallments(loan, futureInstallments, {
+          paymentId: id,
+          prepaymentCents: extraPrincipalCents,
+          recalculation,
+          trx,
+        });
       }
 
       const principalBalance = fromCents(toCents(loan.principalBalance) - principalCents);
@@ -126,6 +156,30 @@ class PaymentService {
       const installments = await this.loanInstallmentRepository.findByLoanId(loan.id, { trx, forUpdate: true });
       const byId = new Map(installments.map((installment) => [installment.id, installment]));
       const allocations = await this.paymentAllocationRepository.findByPaymentIds([paymentId], { trx });
+      const scheduleChanges = await this.paymentScheduleChangeRepository.findByPaymentId(paymentId, { trx });
+
+      // A later payment was allocated against the recalculated installments:
+      // putting the old ones back underneath it would not add up.
+      if (
+        scheduleChanges.length > 0 &&
+        (await this.paymentRepository.hasActivePaymentsAfter(loan.id, paymentId, { trx }))
+      ) {
+        throw new ConflictError(
+          'Este abono a capital recalculó las cuotas. Anule primero los pagos registrados después de él.',
+        );
+      }
+      for (const change of scheduleChanges) {
+        await this.loanInstallmentRepository.update(
+          change.installmentId,
+          {
+            principalDue: change.previousPrincipalDue,
+            interestDue: change.previousInterestDue,
+            amountDue: change.previousAmountDue,
+            status: change.previousStatus,
+          },
+          { trx },
+        );
+      }
 
       for (const a of allocations) {
         await this.applyToInstallment(
@@ -166,6 +220,29 @@ class PaymentService {
     const { items, total, totals } = await this.paymentRepository.findAll(query);
     const { page, pageSize } = query;
     return { items, meta: { page, pageSize, total, totalPages: Math.ceil(total / pageSize), totals } };
+  }
+
+  /**
+   * Principal prepayment on a fixed-term loan: recalculates the installments
+   * still to come and records how they were, so voiding can restore them.
+   */
+  async rescheduleFutureInstallments(loan, installments, { paymentId, prepaymentCents, recalculation, trx }) {
+    const rescheduled = this.installmentRescheduler.reschedule({ loan, installments, prepaymentCents, recalculation });
+
+    await this.paymentScheduleChangeRepository.createMany(
+      installments.map((installment) => ({
+        paymentId,
+        installmentId: installment.id,
+        previousPrincipalDue: installment.principalDue,
+        previousInterestDue: installment.interestDue,
+        previousAmountDue: installment.amountDue,
+        previousStatus: installment.status,
+      })),
+      { trx },
+    );
+    for (const { id, ...changes } of rescheduled) {
+      await this.loanInstallmentRepository.update(id, changes, { trx });
+    }
   }
 
   /** Adds (or with negative cents, removes) money to an installment and updates its status. */

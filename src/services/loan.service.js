@@ -19,6 +19,7 @@ class LoanService {
     loanInstallmentRepository,
     paymentRepository,
     clientRepository,
+    interestRateService,
     scheduleCalculator,
     scheduleKeeper,
     transactionManager,
@@ -28,6 +29,7 @@ class LoanService {
     this.loanInstallmentRepository = loanInstallmentRepository;
     this.paymentRepository = paymentRepository;
     this.clientRepository = clientRepository;
+    this.interestRateService = interestRateService;
     this.scheduleCalculator = scheduleCalculator;
     this.scheduleKeeper = scheduleKeeper;
     this.transactionManager = transactionManager;
@@ -35,12 +37,14 @@ class LoanService {
   }
 
   /** Projection without saving anything (the "preview" button of the form). */
-  preview(terms) {
+  async preview(terms) {
+    await this.ensureRateIsOffered(terms);
     return this.scheduleCalculator.calculate(this.withStartDate(terms));
   }
 
   async create(input, { userId = null } = {}) {
     const terms = this.withStartDate(input);
+    await this.ensureRateIsOffered(terms);
     await this.ensureClientExists(terms.clientId, 'clientId', 'El cliente no existe.');
     await this.ensureClientExists(terms.coDebtorId, 'coDebtorId', 'El codeudor no existe.');
 
@@ -126,6 +130,11 @@ class LoanService {
       throw fieldError('startDate', 'La fecha de desembolso no puede ser futura.');
     }
     return { ...terms, startDate };
+  }
+
+  /** Monthly loans must use a rate of the catalog; biweekly loans have no rate. */
+  async ensureRateIsOffered(terms) {
+    if (terms.frequency === 'monthly') await this.interestRateService.ensureOffered(terms.monthlyInterestRate);
   }
 
   async ensureClientExists(clientId, field, message) {

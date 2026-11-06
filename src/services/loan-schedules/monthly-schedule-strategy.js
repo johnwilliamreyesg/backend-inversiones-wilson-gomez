@@ -62,6 +62,19 @@ class MonthlyScheduleStrategy {
     );
   }
 
+  /**
+   * Interest of installments recalculated after a principal prepayment
+   * (InstallmentRescheduler): the rate on the balance still owed before each one.
+   */
+  rescheduledInterestCents({ loan, principalsCents }) {
+    let balance = principalsCents.reduce((total, cents) => total + cents, 0);
+    return principalsCents.map((principal) => {
+      const interest = balance > 0 ? this.interestCents(balance, loan.monthlyInterestRate) : 0;
+      balance -= principal;
+      return interest;
+    });
+  }
+
   dueDate(startDate, paymentDay, installmentNumber) {
     const { year, month } = parse(startDate);
     const target = addMonths(year, month, installmentNumber);

@@ -11,6 +11,8 @@ const PUBLIC_COLUMNS = [
   'payments.principalAmount',
   'payments.interestAmount',
   'payments.paymentMethod',
+  'payments.paymentType',
+  'payments.recalculation',
   'payments.notes',
   'payments.receivedBy',
   'receiver.fullName as receivedByName',
@@ -109,6 +111,12 @@ class PaymentRepository {
     await (trx ?? this.db)(TABLE_NAME)
       .where({ id })
       .update({ voidedAt: this.db.fn.now(), voidedBy, voidReason });
+  }
+
+  /** Whether the loan received payments (not voided) after this one was registered. */
+  async hasActivePaymentsAfter(loanId, paymentId, { trx } = {}) {
+    const later = await this.activePayments(trx).where({ loanId }).where('payments.id', '>', paymentId).first('payments.id');
+    return Boolean(later);
   }
 
   async countActiveByLoanId(loanId, { trx } = {}) {

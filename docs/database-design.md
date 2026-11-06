@@ -110,6 +110,8 @@ classDiagram
         +decimal principal_amount
         +decimal interest_amount
         +varchar payment_method
+        +varchar payment_type
+        +varchar recalculation
         +text notes
         +int received_by FK
         +timestamptz voided_at
@@ -125,6 +127,23 @@ classDiagram
         +decimal principal_amount
         +decimal interest_amount
         +timestamptz created_at
+    }
+    class payment_schedule_changes {
+        +int id PK
+        +int payment_id FK
+        +int installment_id FK
+        +decimal previous_principal_due
+        +decimal previous_interest_due
+        +decimal previous_amount_due
+        +varchar previous_status
+        +timestamptz created_at
+    }
+    class interest_rates {
+        +int id PK
+        +decimal rate UK
+        +boolean is_active
+        +timestamptz created_at
+        +timestamptz updated_at
     }
     class expense_categories {
         +int id PK
@@ -157,6 +176,8 @@ classDiagram
     loans "1" --> "0..*" payments : loan_id
     payments "1" *-- "1..*" payment_allocations : payment_id
     loan_installments "1" --> "0..*" payment_allocations : installment_id
+    payments "1" *-- "0..*" payment_schedule_changes : payment_id
+    loan_installments "1" --> "0..*" payment_schedule_changes : installment_id
 
     expense_categories "1" --> "0..*" expenses : category_id
 
@@ -172,8 +193,8 @@ classDiagram
 |---|---|
 | Usuarios y roles | `roles`, `permissions`, `role_permissions`, `users` |
 | Clientes | `clients`, `client_photos` |
-| Créditos | `loans`, `loan_installments` |
-| Cobros | `payments`, `payment_allocations` (+ `loan_installments`) |
+| Créditos | `loans`, `loan_installments`, `interest_rates` (catálogo de tasas mensuales) |
+| Cobros | `payments`, `payment_allocations`, `payment_schedule_changes` (+ `loan_installments`) |
 | Gastos | `expense_categories`, `expenses` |
 | Reportes | No tienen tablas propias: se calculan con consultas sobre las anteriores (ver sección 4) |
 
@@ -193,6 +214,8 @@ Estas reglas se validan **también** en el backend (para devolver mensajes claro
 | Cuota = capital + interés | `loan_installments_amount_due_check` |
 | Lo pagado de una cuota no supera lo debido | `loan_installments_paid_check` |
 | Pago = capital + interés | `payments_split_check` |
+| Tipo de pago válido; el recálculo solo en un abono a capital | `payments_payment_type_check`, `payments_recalculation_check` |
+| Tasa del catálogo única y entre 0 y 100 % | `interest_rates`: `UNIQUE (rate)` + `interest_rates_rate_check` |
 | Un crédito con pagos no se puede borrar | FK `payments.loan_id` con `ON DELETE RESTRICT` |
 | Nombre de categoría de gasto único sin importar mayúsculas | Índice único `expense_categories_name_lower_unique` sobre `LOWER(name)` |
 | Una categoría con gastos no se puede borrar (se desactiva) | FK `expenses.category_id` con `ON DELETE RESTRICT` |
@@ -223,3 +246,5 @@ Estas reglas se validan **también** en el backend (para devolver mensajes claro
 8. **Dinero en `decimal(14,2)`**, nunca `float`. En Node se convierte a `Number` (seguro para pesos colombianos hasta billones). Las columnas `date` se leen como texto `'YYYY-MM-DD'` para evitar el clásico bug de que la fecha se corra un día por la zona horaria (ver `src/config/database.js`).
 9. **Roles y permisos listos desde ya**: `roles → role_permissions ← permissions`, y cada usuario tiene un rol. En la fase 1 solo existe `admin` con todos los permisos; agregar "cobrador" más adelante es insertar datos, no cambiar el esquema.
 10. **Auditoría básica**: `created_by`, `received_by`, `voided_by` registran qué usuario hizo cada operación.
+11. **Las tasas del catálogo no son FK del crédito.** `loans.monthly_interest_rate` guarda el valor, no el id de `interest_rates`: si mañana se desactiva el 7 % o se cambia, los créditos que ya se hicieron al 7 % siguen al 7 %.
+12. **`payment_schedule_changes`.** Un abono a capital en un crédito con plazo reescribe las cuotas futuras. Esta tabla guarda cómo eran antes, para que anular el abono las devuelva exactamente.

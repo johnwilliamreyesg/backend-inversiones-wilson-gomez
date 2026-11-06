@@ -10,13 +10,30 @@ const paymentMethod = z.enum(['cash', 'transfer'], {
 
 const loanIdParamSchema = z.object({ loanId: positiveId('crédito') });
 
-// paymentDate is optional: the service defaults it to today and rejects future dates.
-const registerPaymentSchema = z.object({
-  amount: moneyAmount,
-  paymentDate: isoDate().optional(),
-  paymentMethod: paymentMethod.default('cash'),
-  notes: optionalText(2000),
+const paymentType = z.enum(['installment', 'interest_only', 'principal'], {
+  error: 'El tipo de pago debe ser "installment" (cuota), "interest_only" (solo intereses) o "principal" (abono a capital).',
 });
+
+const recalculation = z.enum(['reduce_installment', 'reduce_term'], {
+  error: 'El recálculo debe ser "reduce_installment" (bajar las cuotas) o "reduce_term" (acortar el plazo).',
+});
+
+// paymentDate is optional: the service defaults it to today and rejects future dates.
+// recalculation: only for a principal prepayment; the service requires it when
+// the prepayment changes the installments of a fixed-term loan.
+const registerPaymentSchema = z
+  .object({
+    amount: moneyAmount,
+    paymentDate: isoDate().optional(),
+    paymentMethod: paymentMethod.default('cash'),
+    paymentType: paymentType.default('installment'),
+    recalculation: recalculation.optional(),
+    notes: optionalText(2000),
+  })
+  .refine((body) => !body.recalculation || body.paymentType === 'principal', {
+    message: 'El recálculo solo aplica a un abono a capital.',
+    path: ['recalculation'],
+  });
 
 const voidPaymentSchema = z.object({
   reason: z

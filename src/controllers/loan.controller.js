@@ -6,7 +6,7 @@ class LoanController {
   }
 
   preview = async (req, res) => {
-    res.json({ data: this.loanService.preview(req.validated.body) });
+    res.json({ data: await this.loanService.preview(req.validated.body) });
   };
 
   list = async (req, res) => {

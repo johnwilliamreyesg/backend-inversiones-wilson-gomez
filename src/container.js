@@ -18,7 +18,9 @@ const { PermissionRepository } = require('./repositories/permission.repository')
 const { LoanInstallmentRepository } = require('./repositories/loan-installment.repository');
 const { PaymentRepository } = require('./repositories/payment.repository');
 const { PaymentAllocationRepository } = require('./repositories/payment-allocation.repository');
+const { PaymentScheduleChangeRepository } = require('./repositories/payment-schedule-change.repository');
 const { ReportRepository } = require('./repositories/report.repository');
+const { InterestRateRepository } = require('./repositories/interest-rate.repository');
 const { HealthService } = require('./services/health.service');
 const { ClientService } = require('./services/client.service');
 const { ClientPhotoService } = require('./services/client-photo.service');
@@ -29,12 +31,14 @@ const { ManagerSafeguard } = require('./services/manager-safeguard');
 const { UserService } = require('./services/user.service');
 const { RoleService } = require('./services/role.service');
 const { LoanService } = require('./services/loan.service');
+const { InterestRateService } = require('./services/interest-rate.service');
 const { LoanScheduleCalculator } = require('./services/loan-schedules/loan-schedule-calculator');
 const { MonthlyScheduleStrategy } = require('./services/loan-schedules/monthly-schedule-strategy');
 const { BiweeklyScheduleStrategy } = require('./services/loan-schedules/biweekly-schedule-strategy');
 const { LoanScheduleKeeper } = require('./services/loan-schedules/loan-schedule-keeper');
 const { PaymentService } = require('./services/payment.service');
 const { PaymentAllocator } = require('./services/payments/payment-allocator');
+const { InstallmentRescheduler } = require('./services/payments/installment-rescheduler');
 const { CollectionService } = require('./services/collection.service');
 const { ReportService } = require('./services/report.service');
 const { HealthController } = require('./controllers/health.controller');
@@ -47,6 +51,7 @@ const { ExpenseCategoryController } = require('./controllers/expense-category.co
 const { UserController } = require('./controllers/user.controller');
 const { RoleController } = require('./controllers/role.controller');
 const { LoanController } = require('./controllers/loan.controller');
+const { InterestRateController } = require('./controllers/interest-rate.controller');
 const { PaymentController } = require('./controllers/payment.controller');
 const { CollectionController } = require('./controllers/collection.controller');
 const { ReportController } = require('./controllers/report.controller');
@@ -105,7 +110,9 @@ const createContainer = () => {
   const loanInstallmentRepository = new LoanInstallmentRepository({ db });
   const paymentRepository = new PaymentRepository({ db });
   const paymentAllocationRepository = new PaymentAllocationRepository({ db });
+  const paymentScheduleChangeRepository = new PaymentScheduleChangeRepository({ db });
   const reportRepository = new ReportRepository({ db });
+  const interestRateRepository = new InterestRateRepository({ db });
 
   // Services
   const healthService = new HealthService({ healthRepository });
@@ -135,11 +142,13 @@ const createContainer = () => {
     transactionManager,
     clock,
   });
+  const interestRateService = new InterestRateService({ interestRateRepository });
   const loanService = new LoanService({
     loanRepository,
     loanInstallmentRepository,
     paymentRepository,
     clientRepository,
+    interestRateService,
     scheduleCalculator,
     scheduleKeeper,
     transactionManager,
@@ -150,7 +159,9 @@ const createContainer = () => {
     loanInstallmentRepository,
     paymentRepository,
     paymentAllocationRepository,
+    paymentScheduleChangeRepository,
     paymentAllocator: new PaymentAllocator(),
+    installmentRescheduler: new InstallmentRescheduler({ scheduleCalculator, roundingUnitCents }),
     scheduleKeeper,
     transactionManager,
     clock,
@@ -185,6 +196,7 @@ const createContainer = () => {
   const userController = new UserController({ userService });
   const roleController = new RoleController({ roleService });
   const loanController = new LoanController({ loanService });
+  const interestRateController = new InterestRateController({ interestRateService });
   const paymentController = new PaymentController({ paymentService });
   const collectionController = new CollectionController({ collectionService });
   const reportController = new ReportController({ reportService });
@@ -208,6 +220,7 @@ const createContainer = () => {
       userController,
       roleController,
       loanController,
+      interestRateController,
       paymentController,
       collectionController,
       reportController,
