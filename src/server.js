@@ -1,3 +1,4 @@
+const path = require('path');
 const env = require('./config/env');
 const { createContainer } = require('./container');
 const { createApp } = require('./app');
@@ -13,7 +14,24 @@ const app = createApp({
 
 const server = app.listen(env.server.port, () => {
   console.log(`API listening on http://localhost:${env.server.port}/api (${env.nodeEnv})`);
+  warnAboutPendingMigrations();
 });
+
+// New code with an old database fails with 500 on whatever touches a new
+// table or column. Say it at start-up instead of letting it look like a bug.
+async function warnAboutPendingMigrations() {
+  try {
+    const [, pending] = await container.db.migrate.list({ directory: path.join(__dirname, 'migrations') });
+    if (pending.length > 0) {
+      console.warn(
+        `\n⚠️  The database has ${pending.length} pending migration(s). Run "npm run db:migrate" and restart:\n` +
+          pending.map(({ file }) => `   - ${file}`).join('\n'),
+      );
+    }
+  } catch (error) {
+    console.warn(`Could not check pending migrations: ${error.message}`);
+  }
+}
 
 // Graceful shutdown: stop accepting requests, let in-flight ones finish
 // (e.g. a payment being saved), then close the database pool.
