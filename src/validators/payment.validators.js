@@ -28,11 +28,17 @@ const registerPaymentSchema = z
     paymentMethod: paymentMethod.default('cash'),
     paymentType: paymentType.default('installment'),
     recalculation: recalculation.optional(),
+    // Interest only: new due date for what is left of the installment.
+    rescheduleTo: isoDate('La nueva fecha debe tener el formato AAAA-MM-DD.').optional(),
     notes: optionalText(2000),
   })
   .refine((body) => !body.recalculation || body.paymentType === 'principal', {
     message: 'El recálculo solo aplica a un abono a capital.',
     path: ['recalculation'],
+  })
+  .refine((body) => !body.rescheduleTo || body.paymentType === 'interest_only', {
+    message: 'Reagendar solo aplica a un abono de intereses.',
+    path: ['rescheduleTo'],
   });
 
 const voidPaymentSchema = z.object({
@@ -64,7 +70,12 @@ const listCollectionsQuerySchema = z.object({
   onlyOverdue: queryBoolean.default(false),
 });
 
+const listUpcomingQuerySchema = z.object({
+  days: z.coerce.number().int().min(1, 'Mínimo 1 día.').max(60, 'Máximo 60 días.').default(7),
+});
+
 module.exports = {
+  listUpcomingQuerySchema,
   loanIdParamSchema,
   registerPaymentSchema,
   voidPaymentSchema,

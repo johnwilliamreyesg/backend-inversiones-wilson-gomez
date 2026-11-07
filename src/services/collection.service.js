@@ -1,4 +1,4 @@
-const { daysBetween } = require('../utils/calendar-dates');
+const { daysBetween, addDays } = require('../utils/calendar-dates');
 const { toCents, fromCents } = require('../utils/money');
 
 /**
@@ -37,6 +37,17 @@ class CollectionService {
         collected,
       },
     };
+  }
+
+  /** Installments due in the next `days` days, to remind the clients beforehand. */
+  async listUpcoming({ days }) {
+    const today = this.clock.today();
+    await this.scheduleKeeper.keepAllCurrent();
+    const from = addDays(today, 1);
+    const to = addDays(today, days);
+    const rows = await this.loanInstallmentRepository.findUpcoming({ from, to });
+    const items = rows.map((row) => ({ ...row, amountDue: Number(row.amountDue), daysUntilDue: daysBetween(today, row.dueDate) }));
+    return { items, meta: { from, to, installments: items.length } };
   }
 }
 

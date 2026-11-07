@@ -2,13 +2,16 @@ const { toCents, fromCents, roundCents } = require('../../utils/money');
 const { parse, dateInMonth, addMonths } = require('../../utils/calendar-dates');
 
 /**
- * Monthly loans: interest = monthly rate x outstanding principal.
+ * Monthly loans.
  *
- * - With a term (numberOfInstallments): equal principal parts plus interest on
- *   the balance, so each installment is a bit smaller than the previous one.
- * - Without a term (open-ended): each month only the interest is due and the
- *   client pays principal whenever they want. Only the next installment exists;
- *   the payments module creates the following one (nextOpenEndedInstallment).
+ * - With a term (numberOfInstallments): equal installments, the way the lender
+ *   does it by hand: principal / installments + monthly rate x the INITIAL
+ *   principal. They only change after a principal prepayment (then the rate
+ *   applies to the principal left, see rescheduledInterestCents).
+ * - Without a term (open-ended): each month only the interest is due, on the
+ *   current balance, and the client pays principal whenever they want. Only
+ *   the next installment exists; the payments module creates the following
+ *   one (nextOpenEndedInstallment).
  *
  * Due dates: `paymentDay` of every month starting the month after the
  * disbursement (31 becomes 30 or 28/29 in shorter months). By default the
@@ -37,15 +40,14 @@ class MonthlyScheduleStrategy {
       this.roundingUnitCents,
       'down',
     );
-    let balance = principalCents;
+    // Flat interest: the same amount every month, on the initial principal.
+    const interest = this.interestCents(principalCents, monthlyInterestRate);
     const installments = [];
     for (let number = 1; number <= numberOfInstallments; number += 1) {
       // The last installment takes the rounding remainder so principal adds up exactly.
-      const principal = number === numberOfInstallments ? balance : regularPrincipal;
-      installments.push(
-        this.installment(number, dueDate(number), principal, this.interestCents(balance, monthlyInterestRate)),
-      );
-      balance -= principal;
+      const principal =
+        number === numberOfInstallments ? principalCents - regularPrincipal * (numberOfInstallments - 1) : regularPrincipal;
+      installments.push(this.installment(number, dueDate(number), principal, interest));
     }
     return { paymentDay: day, installments };
   }
@@ -64,15 +66,14 @@ class MonthlyScheduleStrategy {
 
   /**
    * Interest of installments recalculated after a principal prepayment
-   * (InstallmentRescheduler): the rate on the balance still owed before each one.
+   * (InstallmentRescheduler): still flat, now on the principal left after the
+   * prepayment, so the installments stay equal to each other. An installment
+   * left without principal (shortened term) has no interest either.
    */
   rescheduledInterestCents({ loan, principalsCents }) {
-    let balance = principalsCents.reduce((total, cents) => total + cents, 0);
-    return principalsCents.map((principal) => {
-      const interest = balance > 0 ? this.interestCents(balance, loan.monthlyInterestRate) : 0;
-      balance -= principal;
-      return interest;
-    });
+    const principalLeft = principalsCents.reduce((total, cents) => total + cents, 0);
+    const interest = this.interestCents(principalLeft, loan.monthlyInterestRate);
+    return principalsCents.map((principal) => (principal > 0 ? interest : 0));
   }
 
   dueDate(startDate, paymentDay, installmentNumber) {

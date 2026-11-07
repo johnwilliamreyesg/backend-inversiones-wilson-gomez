@@ -8,6 +8,7 @@ const {
   voidPaymentSchema,
   listPaymentsQuerySchema,
   listCollectionsQuerySchema,
+  listUpcomingQuerySchema,
 } = require('../validators/payment.validators');
 
 // Mounted behind `authenticate` (see routes/index.js), so req.user always exists here.
@@ -62,6 +63,12 @@ const createCollectionRoutes = ({ collectionController }) => {
     authorize('payments.read'),
     validateRequest({ query: listCollectionsQuerySchema }),
     collectionController.listDue,
+  );
+  router.get(
+    '/upcoming',
+    authorize('payments.read'),
+    validateRequest({ query: listUpcomingQuerySchema }),
+    collectionController.listUpcoming,
   );
   return router;
 };

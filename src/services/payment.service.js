@@ -25,6 +25,7 @@ class PaymentService {
     paymentScheduleChangeRepository,
     paymentAllocator,
     installmentRescheduler,
+    dueDateService,
     scheduleKeeper,
     transactionManager,
     clock,
@@ -36,6 +37,7 @@ class PaymentService {
     this.paymentScheduleChangeRepository = paymentScheduleChangeRepository;
     this.paymentAllocator = paymentAllocator;
     this.installmentRescheduler = installmentRescheduler;
+    this.dueDateService = dueDateService;
     this.scheduleKeeper = scheduleKeeper;
     this.transactionManager = transactionManager;
     this.clock = clock;
@@ -43,12 +45,15 @@ class PaymentService {
 
   async register(
     loanId,
-    { amount, paymentDate: requestedDate, paymentMethod, paymentType = PAYMENT_TYPES.INSTALLMENT, recalculation, notes },
+    { amount, paymentDate: requestedDate, paymentMethod, paymentType = PAYMENT_TYPES.INSTALLMENT, recalculation, rescheduleTo, notes },
     { userId = null } = {},
   ) {
     const today = this.clock.today();
     const paymentDate = requestedDate ?? today;
     if (paymentDate > today) throw fieldError('paymentDate', 'La fecha del pago no puede ser futura.');
+    if (rescheduleTo && rescheduleTo <= paymentDate) {
+      throw fieldError('rescheduleTo', 'La nueva fecha debe ser posterior a la fecha del pago.');
+    }
 
     const paymentId = await this.transactionManager.run(async (trx) => {
       const loan = await this.loanRepository.findById(loanId, { trx, forUpdate: true });
@@ -117,6 +122,24 @@ class PaymentService {
         await this.applyToInstallment(installment, a.principalCents, a.interestCents, { trx });
       }
 
+      // Interest only: what is left of the installments it touched gets a new date.
+      if (rescheduleTo) {
+        const stillOwed = allocations
+          .map(({ installmentId }) => byId.get(installmentId))
+          .filter(({ status }) => OPEN_INSTALLMENT_STATUSES.includes(status));
+        if (stillOwed.length === 0) {
+          throw fieldError('rescheduleTo', 'La cuota quedó pagada completa: no hay nada que reagendar.');
+        }
+        await this.dueDateService.rescheduleForPayment({
+          loanId,
+          installments: stillOwed,
+          dueDate: rescheduleTo,
+          paymentId: id,
+          userId,
+          trx,
+        });
+      }
+
       if (reschedules) {
         await this.rescheduleFutureInstallments(loan, futureInstallments, {
           paymentId: id,
@@ -153,6 +176,9 @@ class PaymentService {
       if (payment.voidedAt) throw new ConflictError('El pago ya está anulado.');
 
       const loan = await this.loanRepository.findById(payment.loanId, { trx, forUpdate: true });
+      // Dates moved by this payment (interest only + reschedule) go back first.
+      await this.dueDateService.undoForPayment({ paymentId, userId, trx });
+
       const installments = await this.loanInstallmentRepository.findByLoanId(loan.id, { trx, forUpdate: true });
       const byId = new Map(installments.map((installment) => [installment.id, installment]));
       const allocations = await this.paymentAllocationRepository.findByPaymentIds([paymentId], { trx });
@@ -207,7 +233,17 @@ class PaymentService {
     const payment = await this.paymentRepository.findById(id);
     if (!payment) throw new NotFoundError('El pago no existe.');
     const allocations = await this.paymentAllocationRepository.findByPaymentIds([id]);
-    return { ...payment, allocations: allocations.map(({ paymentId, ...rest }) => rest) };
+    const dateChanges = await this.dueDateService.changesForPayment(id);
+    return {
+      ...payment,
+      allocations: allocations.map(({ paymentId, ...rest }) => rest),
+      // Installments whose remainder this payment moved to a new date.
+      rescheduled: dateChanges.map(({ installmentNumber, previousDueDate, newDueDate }) => ({
+        installmentNumber,
+        previousDueDate,
+        newDueDate,
+      })),
+    };
   }
 
   async listByLoan(loanId) {

@@ -69,6 +69,8 @@ class LoanInstallmentRepository {
         'coDebtor.phoneCountryCode as coDebtorPhoneCountryCode',
         'coDebtor.phoneNumber as coDebtorPhoneNumber',
         this.db.raw('COUNT(*)::int AS ??', ['installmentsDue']),
+        this.db.raw('MIN(??)::int AS ??', ['installment.installmentNumber', 'firstInstallmentNumber']),
+        this.db.raw('MAX(??)::int AS ??', ['installment.installmentNumber', 'lastInstallmentNumber']),
         this.db.raw('MIN(??) AS ??', ['installment.dueDate', 'oldestDueDate']),
         this.db.raw(
           'SUM(?? - ?? - ??) AS ??',
@@ -89,6 +91,37 @@ class LoanInstallmentRepository {
       );
     }
     return query;
+  }
+
+  /**
+   * Open installments due between `from` and `to` (the "Próximos" list, to
+   * remind clients before the date). `rescheduled` = its date was moved by hand.
+   */
+  findUpcoming({ from, to }) {
+    return this.db(`${TABLE_NAME} as installment`)
+      .join('loans as loan', 'loan.id', 'installment.loanId')
+      .join('clients as client', 'client.id', 'loan.clientId')
+      .whereIn('loan.status', ['active', 'defaulted'])
+      .whereIn('installment.status', OPEN_STATUSES)
+      .whereBetween('installment.dueDate', [from, to])
+      .select(
+        'installment.id as installmentId',
+        'installment.installmentNumber',
+        'installment.dueDate',
+        'loan.id as loanId',
+        'loan.frequency',
+        'loan.numberOfInstallments',
+        'client.id as clientId',
+        'client.fullName as clientName',
+        'client.phoneCountryCode as clientPhoneCountryCode',
+        'client.phoneNumber as clientPhoneNumber',
+        this.db.raw('(?? - ?? - ??) AS ??', ['installment.amountDue', 'installment.principalPaid', 'installment.interestPaid', 'amountDue']),
+        this.db.raw(
+          'EXISTS (SELECT 1 FROM installment_due_date_changes c WHERE c.installment_id = ?? AND c.new_due_date = ??) AS ??',
+          ['installment.id', 'installment.dueDate', 'rescheduled'],
+        ),
+      )
+      .orderBy([{ column: 'installment.dueDate' }, { column: 'client.fullName' }]);
   }
 
   /** Marks every installment that still expected money as cancelled. */

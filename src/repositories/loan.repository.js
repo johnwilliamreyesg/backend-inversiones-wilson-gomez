@@ -10,6 +10,8 @@ const PUBLIC_COLUMNS = [
   'loans.clientId',
   'client.fullName as clientName',
   'client.nationalId as clientNationalId',
+  'client.phoneCountryCode as clientPhoneCountryCode',
+  'client.phoneNumber as clientPhoneNumber',
   'loans.coDebtorId',
   'coDebtor.fullName as coDebtorName',
   'loans.frequency',

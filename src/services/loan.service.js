@@ -19,6 +19,7 @@ class LoanService {
     loanInstallmentRepository,
     paymentRepository,
     clientRepository,
+    dueDateChangeRepository,
     interestRateService,
     scheduleCalculator,
     scheduleKeeper,
@@ -29,6 +30,7 @@ class LoanService {
     this.loanInstallmentRepository = loanInstallmentRepository;
     this.paymentRepository = paymentRepository;
     this.clientRepository = clientRepository;
+    this.dueDateChangeRepository = dueDateChangeRepository;
     this.interestRateService = interestRateService;
     this.scheduleCalculator = scheduleCalculator;
     this.scheduleKeeper = scheduleKeeper;
@@ -93,7 +95,9 @@ class LoanService {
     const installments = (await this.loanInstallmentRepository.findByLoanId(id)).map(
       (installment) => this.describeInstallment(installment, today),
     );
-    return { ...loan, installments, summary: this.summarize(installments) };
+    // Every due date moved by hand, newest first ("Reagendada" in the detail).
+    const dueDateChanges = await this.dueDateChangeRepository.findByLoanId(id);
+    return { ...loan, installments, summary: this.summarize(installments), dueDateChanges };
   }
 
   async listByClient(clientId) {

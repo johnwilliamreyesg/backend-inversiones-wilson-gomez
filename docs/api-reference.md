@@ -469,7 +469,7 @@ Permisos: `loans.read` (ver), `loans.create` (vista previa y crear), `loans.upda
 
 | `frequency` | Campos | Cómo se calcula |
 | ----------- | ------ | --------------- |
-| `monthly`   | `monthlyInterestRate` (obligatorio, % mensual; **debe ser una tasa activa del catálogo**, ver "Tasas de interés"), `numberOfInstallments` (opcional), `paymentDay` (opcional, 1–31) | Interés = tasa × saldo de capital. **Con** número de cuotas: capital en partes iguales + interés sobre el saldo (cada cuota es un poco menor). **Sin** número de cuotas: cada mes se cobra solo el interés y el capital se abona libremente. |
+| `monthly`   | `monthlyInterestRate` (obligatorio, % mensual; **debe ser una tasa activa del catálogo**, ver "Tasas de interés"), `numberOfInstallments` (opcional), `paymentDay` (opcional, 1–31) | **Con** número de cuotas: **cuotas iguales**, como lo hace el prestamista: capital ÷ cuotas + tasa × **capital inicial** (ej.: $1.200.000 al 5 % en 4 = 4 cuotas de $300.000 + $60.000). Solo cambian con un abono a capital. **Sin** número de cuotas: cada mes se cobra solo el interés (tasa × saldo) y el capital se abona libremente. |
 | `biweekly`  | `installmentAmount` y `numberOfInstallments` (obligatorios) | Cuota pactada fija. El interés total (cuotas × valor − capital) se reparte por igual: $1.000.000 en 10 cuotas de $120.000 = $100.000 capital + $20.000 interés por cuota. |
 
 Fechas de las cuotas:
@@ -559,6 +559,24 @@ Estados de cuota: `pending`, `partially_paid`, `paid`, `cancelled`. `isOverdue` 
 
 Créditos de un cliente separados por papel: `{ "asDebtor": [...], "asCoDebtor": [...] }`. `404` si el cliente no existe.
 
+### `PATCH /loans/:id/installments/:installmentId/due-date`
+
+Permiso `loans.update`. Cambia la fecha de pago de una cuota pendiente ("reagendar").
+
+```json
+{ "dueDate": "2026-11-30", "applyToFollowing": true, "reason": "Le pagan a fin de mes" }
+```
+
+| Campo | Reglas |
+| --- | --- |
+| `dueDate` | `AAAA-MM-DD`, no anterior al desembolso |
+| `applyToFollowing` | `true`: mueve también las cuotas pendientes siguientes. Mensual: una por mes en ese mismo día (31 → 30/28 en meses cortos) y ese día pasa a ser el `paymentDay` del crédito. Quincenal: cada 15 días desde la nueva fecha. Por defecto `false` (solo esa cuota). |
+| `reason` | Opcional, máx. 255 |
+
+Responde con el detalle del crédito. `409` si la cuota ya está pagada o el crédito está cerrado; `404` si la cuota no es de ese crédito. Cada cambio queda en `dueDateChanges` del detalle: `{ installmentNumber, previousDueDate, newDueDate, reason, changedByName, paymentId, createdAt }`, del más reciente al más antiguo.
+
+El detalle del crédito (`GET /loans/:id`) trae además `clientPhoneCountryCode` y `clientPhoneNumber` para el botón de WhatsApp.
+
 ### `POST /loans/:id/cancel`
 
 Para un crédito registrado por error. Solo si está `active` y **no tiene pagos** (anule los pagos primero); si no, `409`. Sus cuotas pendientes pasan a `cancelled`.
@@ -614,7 +632,7 @@ Permisos: `payments.read`, `payments.create`, `payments.void`.
 | `reduce_installment` | Mismo número de cuotas, cada una más pequeña: el capital que queda se reparte por igual. |
 | `reduce_term` | El abono se descuenta desde la **última** cuota hacia atrás: las últimas desaparecen (`cancelled`) y las demás quedan casi iguales. |
 
-El interés de las cuotas recalculadas: **mensual** = tasa × saldo antes de cada cuota; **quincenal** (no tiene tasa) = cada cuota conserva la parte de su interés proporcional al capital que todavía lleva (la mitad del capital → la mitad del interés).
+El interés de las cuotas recalculadas: **mensual** = tasa × capital que queda después del abono, igual en todas (siguen siendo cuotas iguales); **quincenal** (no tiene tasa) = cada cuota conserva la parte de su interés proporcional al capital que todavía lleva (la mitad del capital → la mitad del interés).
 
 Solo se recalculan las cuotas futuras **sin ningún pago**: una cuota pagada parcialmente por adelantado queda como estaba, y por eso el abono máximo es el capital de las cuotas futuras sin pagos.
 
@@ -638,6 +656,7 @@ Abono a capital que acorta el plazo:
 | `paymentMethod` | `cash` (por defecto) o `transfer`                                        |
 | `paymentType`   | `installment` (por defecto), `interest_only` o `principal`               |
 | `recalculation` | `reduce_installment` o `reduce_term`; solo con `principal`               |
+| `rescheduleTo`  | Solo con `interest_only`: nueva fecha `AAAA-MM-DD` (posterior al pago) para lo que queda de las cuotas que tocó el abono. Sale en Cobros ese día y en "Próximos"; si se anula el pago, vuelve la fecha anterior. La respuesta trae `rescheduled: [{ installmentNumber, previousDueDate, newDueDate }]`. |
 | `paymentDate`   | Por defecto hoy; no futura ni anterior al desembolso                     |
 | `notes`         | Opcional                                                                 |
 
@@ -724,7 +743,35 @@ Permiso `payments.read`. Un registro por crédito con cuotas que vencen **hasta 
 }
 ```
 
-`meta.collected` = lo ya cobrado en esa fecha.
+`meta.collected` = lo ya cobrado en esa fecha. Cada fila trae también `firstInstallmentNumber` y `lastInstallmentNumber` (las cuotas que debe), para el mensaje de WhatsApp.
+
+### `GET /collections/upcoming`
+
+Permiso `payments.read`. Cuotas pendientes que vencen en los próximos días (desde mañana), para recordarle al cliente antes de la fecha. Una fila por cuota.
+
+| Query | Descripción |
+| --- | --- |
+| `days` | 1 a 60, por defecto 7 |
+
+```json
+{
+  "data": [
+    {
+      "installmentId": 7, "installmentNumber": 1, "dueDate": "2026-11-16", "amountDue": 300000,
+      "loanId": 4, "frequency": "monthly", "clientName": "Carla Díaz",
+      "clientPhoneCountryCode": "+57", "clientPhoneNumber": "3104445566",
+      "rescheduled": true, "daysUntilDue": 10
+    }
+  ],
+  "meta": { "from": "2026-11-07", "to": "2026-11-13", "installments": 1 }
+}
+```
+
+`rescheduled: true` = su fecha actual se puso a mano (un compromiso de pago).
+
+### WhatsApp
+
+No hay endpoint: el frontend arma el mensaje (recordatorio o comprobante de pago) y abre `https://wa.me/<teléfono>?text=…`; el admin lo revisa y lo envía. Sin costo y sin aprobación de Meta.
 
 ---
 

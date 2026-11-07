@@ -138,6 +138,17 @@ classDiagram
         +varchar previous_status
         +timestamptz created_at
     }
+    class installment_due_date_changes {
+        +int id PK
+        +int loan_id FK
+        +int installment_id FK
+        +int payment_id FK
+        +date previous_due_date
+        +date new_due_date
+        +varchar reason
+        +int changed_by FK
+        +timestamptz created_at
+    }
     class interest_rates {
         +int id PK
         +decimal rate UK
@@ -177,6 +188,8 @@ classDiagram
     payments "1" *-- "1..*" payment_allocations : payment_id
     loan_installments "1" --> "0..*" payment_allocations : installment_id
     payments "1" *-- "0..*" payment_schedule_changes : payment_id
+    loan_installments "1" --> "0..*" installment_due_date_changes : installment_id
+    payments "1" --> "0..*" installment_due_date_changes : payment_id
     loan_installments "1" --> "0..*" payment_schedule_changes : installment_id
 
     expense_categories "1" --> "0..*" expenses : category_id
@@ -194,7 +207,7 @@ classDiagram
 | Usuarios y roles | `roles`, `permissions`, `role_permissions`, `users` |
 | Clientes | `clients`, `client_photos` |
 | Créditos | `loans`, `loan_installments`, `interest_rates` (catálogo de tasas mensuales) |
-| Cobros | `payments`, `payment_allocations`, `payment_schedule_changes` (+ `loan_installments`) |
+| Cobros | `payments`, `payment_allocations`, `payment_schedule_changes`, `installment_due_date_changes` (+ `loan_installments`) |
 | Gastos | `expense_categories`, `expenses` |
 | Reportes | No tienen tablas propias: se calculan con consultas sobre las anteriores (ver sección 4) |
 
@@ -248,3 +261,5 @@ Estas reglas se validan **también** en el backend (para devolver mensajes claro
 10. **Auditoría básica**: `created_by`, `received_by`, `voided_by` registran qué usuario hizo cada operación.
 11. **Las tasas del catálogo no son FK del crédito.** `loans.monthly_interest_rate` guarda el valor, no el id de `interest_rates`: si mañana se desactiva el 7 % o se cambia, los créditos que ya se hicieron al 7 % siguen al 7 %.
 12. **`payment_schedule_changes`.** Un abono a capital en un crédito con plazo reescribe las cuotas futuras. Esta tabla guarda cómo eran antes, para que anular el abono las devuelva exactamente.
+13. **`installment_due_date_changes`.** Cada fecha movida a mano (reagendar) con la fecha anterior, el motivo y quién lo hizo. Si la movió un abono de intereses, `payment_id` permite devolverla al anular ese pago.
+14. **Cuotas iguales en mensuales con plazo** (migración `20261106000300`): interés = tasa × capital inicial. Los créditos que ya existían sin ningún pago se recalcularon; los que ya tenían pagos quedaron como estaban.

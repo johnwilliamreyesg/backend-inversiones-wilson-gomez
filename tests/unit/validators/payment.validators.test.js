@@ -24,6 +24,15 @@ describe('registerPaymentSchema', () => {
     assert.deepEqual(fieldsWithErrors(result), ['recalculation']);
   });
 
+  it('rescheduling what is left only goes with an interest-only payment', () => {
+    const ok = registerPaymentSchema.safeParse({ amount: 1, paymentType: 'interest_only', rescheduleTo: '2026-11-30' });
+    assert.equal(ok.success, true);
+    const wrongType = registerPaymentSchema.safeParse({ amount: 1, rescheduleTo: '2026-11-30' });
+    assert.deepEqual(fieldsWithErrors(wrongType), ['rescheduleTo']);
+    const badDate = registerPaymentSchema.safeParse({ amount: 1, paymentType: 'interest_only', rescheduleTo: '30/11/2026' });
+    assert.deepEqual(fieldsWithErrors(badDate), ['rescheduleTo']);
+  });
+
   it('a recalculation only makes sense with a principal prepayment', () => {
     const result = registerPaymentSchema.safeParse({ amount: 1, recalculation: 'reduce_installment' });
     assert.deepEqual(fieldsWithErrors(result), ['recalculation']);

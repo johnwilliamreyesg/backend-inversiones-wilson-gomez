@@ -45,6 +45,7 @@ const createFakes = ({ activePayments = 0 } = {}) => {
       },
     },
     paymentRepository: { countActiveByLoanId: async () => activePayments },
+    dueDateChangeRepository: { findByLoanId: async () => [] },
     // Catalog: 2 % to 10 %, with 7 % deactivated.
     interestRateService: new InterestRateService({
       interestRateRepository: {

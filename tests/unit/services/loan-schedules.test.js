@@ -15,7 +15,7 @@ const split = (installment) => [installment.principalDue, installment.interestDu
 describe('MonthlyScheduleStrategy', () => {
   const strategy = new MonthlyScheduleStrategy({ roundingUnitCents: ONE_PESO });
 
-  it('fixed term: equal principal plus interest on the remaining balance', () => {
+  it('fixed term: equal installments, interest on the INITIAL principal every month', () => {
     const { installments } = strategy.buildSchedule({
       principalAmount: 1_000_000,
       monthlyInterestRate: 10,
@@ -24,9 +24,9 @@ describe('MonthlyScheduleStrategy', () => {
     });
     assert.deepEqual(installments.map(split), [
       [250_000, 100_000, 350_000],
-      [250_000, 75_000, 325_000],
-      [250_000, 50_000, 300_000],
-      [250_000, 25_000, 275_000],
+      [250_000, 100_000, 350_000],
+      [250_000, 100_000, 350_000],
+      [250_000, 100_000, 350_000],
     ]);
   });
 

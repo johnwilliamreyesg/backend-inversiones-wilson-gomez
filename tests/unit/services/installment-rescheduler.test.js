@@ -28,24 +28,24 @@ const installment = (id, principalDue, interestDue) => ({
 const summary = (rows) => rows.map((row) => [row.principalDue, row.interestDue, row.status]);
 
 describe('InstallmentRescheduler — monthly loan with term', () => {
-  // 1.200.000 at 5 % in 4 installments; the first one is paid, 900.000 still owed.
+  // 1.200.000 at 5 % in 4 equal installments of 300.000 + 60.000; the first one is paid.
   const loan = { frequency: 'monthly', monthlyInterestRate: 5 };
-  const remaining = [installment(2, 300_000, 45_000), installment(3, 300_000, 30_000), installment(4, 300_000, 15_000)];
+  const remaining = [installment(2, 300_000, 60_000), installment(3, 300_000, 60_000), installment(4, 300_000, 60_000)];
   const prepay = (recalculation) =>
     rescheduler.reschedule({ loan, installments: remaining, prepaymentCents: 300_000 * 100, recalculation });
 
-  it('reduce_installment: same 3 installments, smaller, interest on the new balance', () => {
+  it('reduce_installment: same 3 installments, still equal; interest = 5 % of the 600.000 left', () => {
     assert.deepEqual(summary(prepay('reduce_installment')), [
       [200_000, 30_000, 'pending'],
-      [200_000, 20_000, 'pending'],
-      [200_000, 10_000, 'pending'],
+      [200_000, 30_000, 'pending'],
+      [200_000, 30_000, 'pending'],
     ]);
   });
 
   it('reduce_term: the last installment disappears, the others keep their principal', () => {
     assert.deepEqual(summary(prepay('reduce_term')), [
       [300_000, 30_000, 'pending'],
-      [300_000, 15_000, 'pending'],
+      [300_000, 30_000, 'pending'],
       [0, 0, 'cancelled'],
     ]);
   });

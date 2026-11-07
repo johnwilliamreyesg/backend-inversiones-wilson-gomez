@@ -9,6 +9,11 @@ class CollectionController {
     const { items, meta } = await this.collectionService.listDue(req.validated.query);
     res.json({ data: items, meta });
   };
+
+  listUpcoming = async (req, res) => {
+    const { items, meta } = await this.collectionService.listUpcoming(req.validated.query);
+    res.json({ data: items, meta });
+  };
 }
 
 module.exports = { CollectionController };

@@ -6,6 +6,8 @@ const {
   createLoanSchema,
   previewLoanSchema,
   listLoansQuerySchema,
+  installmentParamsSchema,
+  rescheduleInstallmentSchema,
 } = require('../validators/loan.validators');
 const { createLoanPaymentRoutes } = require('./payment.routes');
 
@@ -42,6 +44,12 @@ const createLoanRoutes = (controllers) => {
     authorize('loans.create'),
     validateRequest({ body: createLoanSchema }),
     loanController.create,
+  );
+  router.patch(
+    '/:id/installments/:installmentId/due-date',
+    authorize('loans.update'),
+    validateRequest({ params: installmentParamsSchema, body: rescheduleInstallmentSchema }),
+    loanController.rescheduleInstallment,
   );
   router.post(
     '/:id/cancel',

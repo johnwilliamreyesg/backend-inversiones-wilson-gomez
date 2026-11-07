@@ -77,9 +77,23 @@ const listLoansQuerySchema = paginationSchema.extend({
 
 const clientIdParamSchema = z.object({ clientId: clientRef('cliente') });
 
+const installmentParamsSchema = z.object({
+  id: clientRef('crédito'),
+  installmentId: clientRef('cuota'),
+});
+
+// Move one installment, or it and the following ones, to a new date.
+const rescheduleInstallmentSchema = z.object({
+  dueDate: isoDate('La fecha debe tener el formato AAAA-MM-DD.'),
+  applyToFollowing: z.boolean('applyToFollowing debe ser true o false.').default(false),
+  reason: optionalText(255),
+});
+
 module.exports = {
   createLoanSchema: loanTermsSchema,
   previewLoanSchema,
   listLoansQuerySchema,
   clientIdParamSchema,
+  installmentParamsSchema,
+  rescheduleInstallmentSchema,
 };
