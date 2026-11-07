@@ -90,7 +90,16 @@ class LoanRepository {
     const loans = await this.withParties()
       .where('loans.clientId', clientId)
       .orWhere('loans.coDebtorId', clientId)
-      .select(PUBLIC_COLUMNS)
+      .select([
+        ...PUBLIC_COLUMNS,
+        // Paid-off loans: the date of the last payment that counts (the client's history).
+        this.db.raw(
+          `CASE WHEN loans.status = 'paid_off'
+             THEN (SELECT MAX(p.payment_date) FROM payments p WHERE p.loan_id = loans.id AND p.voided_at IS NULL)
+           END AS ??`,
+          ['paidOffDate'],
+        ),
+      ])
       .orderBy([
         { column: 'loans.startDate', order: 'desc' },
         { column: 'loans.id', order: 'desc' },

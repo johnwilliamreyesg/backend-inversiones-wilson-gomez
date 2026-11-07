@@ -557,7 +557,7 @@ Estados de cuota: `pending`, `partially_paid`, `paid`, `cancelled`. `isOverdue` 
 
 ### `GET /clients/:clientId/loans`
 
-Créditos de un cliente separados por papel: `{ "asDebtor": [...], "asCoDebtor": [...] }`. `404` si el cliente no existe.
+Créditos de un cliente separados por papel: `{ "asDebtor": [...], "asCoDebtor": [...] }`. `404` si el cliente no existe. Cada crédito pagado (`status: "paid_off"`) trae `paidOffDate`: la fecha de su último pago no anulado (el historial del cliente); los demás traen `null`.
 
 ### `PATCH /loans/:id/installments/:installmentId/due-date`
 
