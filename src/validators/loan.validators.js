@@ -78,7 +78,7 @@ const previewLoanSchema = z
   .refine(...collectionDaysApart);
 
 const listLoansQuerySchema = paginationSchema.extend({
-  status: z.enum(['active', 'paid_off', 'defaulted', 'cancelled']).optional(),
+  status: z.enum(['active', 'paid_off', 'defaulted', 'cancelled', 'written_off']).optional(),
   frequency: z.enum(['monthly', 'biweekly']).optional(),
   clientId: clientRef('cliente').optional(),
   search: z.string().trim().max(100).optional(),

@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { createLoanSchema, previewLoanSchema } = require('../../../src/validators/loan.validators');
+const { createLoanSchema, previewLoanSchema, listLoansQuerySchema } = require('../../../src/validators/loan.validators');
 
 const fieldsWithErrors = (result) => result.error.issues.map((issue) => issue.path.join('.'));
 
@@ -62,5 +62,14 @@ describe('previewLoanSchema', () => {
   it('does not need client or co-debtor', () => {
     const { clientId, coDebtorId, ...terms } = BIWEEKLY;
     assert.equal(previewLoanSchema.safeParse(terms).success, true);
+  });
+});
+
+describe('listLoansQuerySchema', () => {
+  it('accepts every loan status the screens filter by, written-off included', () => {
+    for (const status of ['active', 'paid_off', 'defaulted', 'cancelled', 'written_off']) {
+      assert.equal(listLoansQuerySchema.safeParse({ status }).success, true, status);
+    }
+    assert.equal(listLoansQuerySchema.safeParse({ status: 'lost' }).success, false);
   });
 });
