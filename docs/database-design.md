@@ -149,6 +149,19 @@ classDiagram
         +int changed_by FK
         +timestamptz created_at
     }
+    class loan_renegotiations {
+        +int id PK
+        +int loan_id FK
+        +decimal previous_balance
+        +decimal agreed_amount
+        +decimal forgiven_principal
+        +varchar frequency
+        +smallint number_of_installments
+        +date first_due_date
+        +text notes
+        +int created_by FK
+        +timestamptz created_at
+    }
     class interest_rates {
         +int id PK
         +decimal rate UK
@@ -188,6 +201,7 @@ classDiagram
     payments "1" *-- "1..*" payment_allocations : payment_id
     loan_installments "1" --> "0..*" payment_allocations : installment_id
     payments "1" *-- "0..*" payment_schedule_changes : payment_id
+    loans "1" *-- "0..*" loan_renegotiations : loan_id
     loan_installments "1" --> "0..*" installment_due_date_changes : installment_id
     payments "1" --> "0..*" installment_due_date_changes : payment_id
     loan_installments "1" --> "0..*" payment_schedule_changes : installment_id
@@ -263,3 +277,6 @@ Estas reglas se validan **también** en el backend (para devolver mensajes claro
 12. **`payment_schedule_changes`.** Un abono a capital en un crédito con plazo reescribe las cuotas futuras. Esta tabla guarda cómo eran antes, para que anular el abono las devuelva exactamente.
 13. **`installment_due_date_changes`.** Cada fecha movida a mano (reagendar) con la fecha anterior, el motivo y quién lo hizo. Si la movió un abono de intereses, `payment_id` permite devolverla al anular ese pago.
 14. **Cuotas iguales en mensuales con plazo** (migración `20261106000300`): interés = tasa × capital inicial. Los créditos que ya existían sin ningún pago se recalcularon; los que ya tenían pagos quedaron como estaban.
+15. **Quincenales con tasa** (migración `20261109000100`): mismo cálculo que el mensual (mitad de la tasa por quincena) y dos días de cobro (`payment_day`, `second_payment_day`). Los quincenales anteriores conservan `installment_amount`; la regla `loans_terms_check` acepta los dos.
+16. **Codeudor opcional**: `loans.co_debtor_id` admite `NULL`.
+17. **Cartera castigada**: `clients.written_off_at/by/write_off_reason` y `loans.status = 'written_off'` + `written_off_at`. Un acuerdo de pago queda en `loan_renegotiations` (con el capital perdonado) y marca `loans.renegotiated_at`, para que un crédito sin plazo no siga generando cuotas de interés.

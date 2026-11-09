@@ -470,7 +470,7 @@ Permisos: `loans.read` (ver), `loans.create` (vista previa y crear), `loans.upda
 | `frequency` | Campos | Cómo se calcula |
 | ----------- | ------ | --------------- |
 | `monthly`   | `monthlyInterestRate` (obligatorio, % mensual; **debe ser una tasa activa del catálogo**, ver "Tasas de interés"), `numberOfInstallments` (opcional), `paymentDay` (opcional, 1–31) | **Con** número de cuotas: **cuotas iguales**, como lo hace el prestamista: capital ÷ cuotas + tasa × **capital inicial** (ej.: $1.200.000 al 5 % en 4 = 4 cuotas de $300.000 + $60.000). Solo cambian con un abono a capital. **Sin** número de cuotas: cada mes se cobra solo el interés (tasa × saldo) y el capital se abona libremente. |
-| `biweekly`  | `installmentAmount` y `numberOfInstallments` (obligatorios) | Cuota pactada fija. El interés total (cuotas × valor − capital) se reparte por igual: $1.000.000 en 10 cuotas de $120.000 = $100.000 capital + $20.000 interés por cuota. |
+| `biweekly`  | `monthlyInterestRate` (obligatorio, tasa **mensual** del catálogo), `numberOfInstallments` (obligatorio, una por quincena), `paymentDay` y `secondPaymentDay` (opcionales, 1–31, por defecto 15 y 30; separados al menos 7 días) | Mismo cálculo que el mensual, con cuotas iguales: capital ÷ cuotas + **la mitad** de la tasa mensual × capital inicial. Ej.: $1.000.000 al 10 % en 4 quincenas = 4 cuotas de $250.000 + $50.000. Se cobran los dos días elegidos de cada mes (31 → último día de los meses cortos); la primera fecha a menos de 8 días del desembolso se salta. Los quincenales creados antes de este cambio conservan su cuota pactada (`installmentAmount`). |
 
 Fechas de las cuotas:
 
@@ -502,12 +502,14 @@ Calcula la proyección **sin guardar nada** (botón "Vista previa" del formulari
 | Campo                   | Reglas                                                                                                |
 | ----------------------- | ----------------------------------------------------------------------------------------------------- |
 | `clientId`              | Cliente existente                                                                                     |
-| `coDebtorId`            | Otro cliente existente, distinto del deudor                                                           |
+| `coDebtorId`            | **Opcional.** Si se envía: otro cliente existente, distinto del deudor                                |
 | `frequency`             | `monthly` o `biweekly`                                                                                |
 | `principalAmount`       | Valor prestado (número > 0)                                                                           |
 | `startDate`             | Fecha de desembolso `AAAA-MM-DD`; por defecto hoy; no futura. **Puede ser pasada**, para registrar los créditos que ya existen en el cuaderno (sus cuotas vencidas aparecen como atrasadas). |
 | `notes`                 | Opcional, máx. 2000                                                                                   |
-| + campos de la frecuencia | Ver tabla de frecuencias. Quincenal: las cuotas deben cubrir el capital.                            |
+| + campos de la frecuencia | Ver tabla de frecuencias.                                                                           |
+
+Un cliente en cartera castigada no puede recibir créditos nuevos (`400` en `clientId`).
 
 Crea el crédito **y todas sus cuotas en una transacción**. Responde con el detalle (ver `GET /loans/:id`).
 
@@ -772,6 +774,61 @@ Permiso `payments.read`. Cuotas pendientes que vencen en los próximos días (de
 ### WhatsApp
 
 No hay endpoint: el frontend arma el mensaje (recordatorio o comprobante de pago) y abre `https://wa.me/<teléfono>?text=…`; el admin lo revisa y lo envía. Sin costo y sin aprobación de Meta.
+
+---
+
+## Cartera castigada
+
+Permiso `portfolio.write_off`. Clientes que ya no se pueden cobrar (se perdieron, quebraron). Se castiga **el cliente completo**: todos sus créditos abiertos pasan a `status: "written_off"` y desde ese momento:
+
+- salen de Cobros (`/collections`, `/collections/upcoming`) y no reciben pagos (`409`);
+- no cuentan en la cartera (`/reports/portfolio` los muestra aparte: `writtenOffLoans`, `writtenOffPrincipal`) ni en la efectividad mensual;
+- el cliente no puede recibir créditos nuevos ni eliminarse.
+
+### `GET /written-off`
+
+```json
+{
+  "data": [
+    {
+      "client": { "id": 4, "fullName": "Luis Mora", "writtenOffAt": "…", "writeOffReason": "Se fue del país", "writtenOffByName": "Wilson" },
+      "loans": [{ "id": 7, "principalAmount": 1200000, "principalBalance": 900000, "amountOwed": 1020000, "frequency": "monthly", "startDate": "…" }],
+      "principalLost": 900000,
+      "amountOwed": 1020000
+    }
+  ],
+  "meta": { "clients": 1, "loans": 1, "principalLost": 900000 }
+}
+```
+
+### `POST /written-off/clients/:id`
+
+`{ "reason": "Se fue del país" }` (mínimo 5 caracteres). `409` si ya estaba castigado o no tiene créditos abiertos.
+
+### `POST /written-off/loans/:id/renegotiate`
+
+Nuevo **acuerdo de pago** cuando el cliente aparece y negocia:
+
+```json
+{ "agreedAmount": 600000, "numberOfInstallments": 3, "frequency": "monthly", "firstDueDate": "2026-11-30", "notes": "Pagará con la prima" }
+```
+
+- Del valor acordado, hasta el saldo de capital es capital; lo que pase del saldo es interés; el capital que no cubre **se perdona** y queda registrado.
+- Las cuotas viejas se cancelan; las nuevas son iguales, mensuales (mismo día de cada mes) o cada 15 días desde `firstDueDate` (no en el pasado).
+- El crédito vuelve a `active`. Cuando el cliente ya no tiene créditos castigados, deja de estar castigado.
+- El detalle del crédito trae `renegotiations: [{ previousBalance, agreedAmount, forgivenPrincipal, frequency, numberOfInstallments, firstDueDate, notes, createdByName, createdAt }]`.
+
+---
+
+## Descargas
+
+### `GET /backup/excel`
+
+Permiso `backup.download`. Copia de toda la base en un Excel: hojas Resumen, Clientes, Créditos, Cuotas, Pagos, Gastos y Acuerdos de pago, con encabezados en español, dinero como número, fechas reales, filtros y encabezado fijo. Nombre: `backup-inversiones-wilson-gomez-AAAA-MM-DD.xlsx`.
+
+### `GET /collections/print`
+
+Permiso `payments.read`. Los cobros del día en PDF (carta horizontal) para imprimir: cliente y celular, dirección y codeudor, crédito, cuotas, atraso, valor a cobrar y casillas en blanco para escribir lo cobrado. Acepta los mismos filtros que `GET /collections`. Nombre: `cobros-AAAA-MM-DD.pdf`.
 
 ---
 
