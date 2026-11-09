@@ -20,6 +20,8 @@ const { PaymentRepository } = require('./repositories/payment.repository');
 const { PaymentAllocationRepository } = require('./repositories/payment-allocation.repository');
 const { PaymentScheduleChangeRepository } = require('./repositories/payment-schedule-change.repository');
 const { InstallmentDueDateChangeRepository } = require('./repositories/installment-due-date-change.repository');
+const { LoanRenegotiationRepository } = require('./repositories/loan-renegotiation.repository');
+const { BackupRepository } = require('./repositories/backup.repository');
 const { ReportRepository } = require('./repositories/report.repository');
 const { InterestRateRepository } = require('./repositories/interest-rate.repository');
 const { HealthService } = require('./services/health.service');
@@ -34,6 +36,8 @@ const { RoleService } = require('./services/role.service');
 const { LoanService } = require('./services/loan.service');
 const { InterestRateService } = require('./services/interest-rate.service');
 const { InstallmentDueDateService } = require('./services/installment-due-date.service');
+const { WriteOffService } = require('./services/write-off.service');
+const { ExportService } = require('./services/export.service');
 const { LoanScheduleCalculator } = require('./services/loan-schedules/loan-schedule-calculator');
 const { MonthlyScheduleStrategy } = require('./services/loan-schedules/monthly-schedule-strategy');
 const { BiweeklyScheduleStrategy } = require('./services/loan-schedules/biweekly-schedule-strategy');
@@ -54,6 +58,8 @@ const { UserController } = require('./controllers/user.controller');
 const { RoleController } = require('./controllers/role.controller');
 const { LoanController } = require('./controllers/loan.controller');
 const { InterestRateController } = require('./controllers/interest-rate.controller');
+const { WriteOffController } = require('./controllers/write-off.controller');
+const { ExportController } = require('./controllers/export.controller');
 const { PaymentController } = require('./controllers/payment.controller');
 const { CollectionController } = require('./controllers/collection.controller');
 const { ReportController } = require('./controllers/report.controller');
@@ -114,6 +120,8 @@ const createContainer = () => {
   const paymentAllocationRepository = new PaymentAllocationRepository({ db });
   const paymentScheduleChangeRepository = new PaymentScheduleChangeRepository({ db });
   const dueDateChangeRepository = new InstallmentDueDateChangeRepository({ db });
+  const loanRenegotiationRepository = new LoanRenegotiationRepository({ db });
+  const backupRepository = new BackupRepository({ db });
   const reportRepository = new ReportRepository({ db });
   const interestRateRepository = new InterestRateRepository({ db });
 
@@ -152,6 +160,7 @@ const createContainer = () => {
     paymentRepository,
     clientRepository,
     dueDateChangeRepository,
+    loanRenegotiationRepository,
     interestRateService,
     scheduleCalculator,
     scheduleKeeper,
@@ -164,6 +173,16 @@ const createContainer = () => {
     dueDateChangeRepository,
     loanService,
     transactionManager,
+  });
+  const writeOffService = new WriteOffService({
+    clientRepository,
+    loanRepository,
+    loanInstallmentRepository,
+    loanRenegotiationRepository,
+    loanService,
+    transactionManager,
+    clock,
+    roundingUnitCents,
   });
   const paymentService = new PaymentService({
     loanRepository,
@@ -185,6 +204,7 @@ const createContainer = () => {
     clock,
   });
   const reportService = new ReportService({ reportRepository, clock });
+  const exportService = new ExportService({ backupRepository, collectionService, clock, timeZone: env.timeZone });
   const managerSafeguard = new ManagerSafeguard({ userRepository });
   const userService = new UserService({
     userRepository,
@@ -209,6 +229,8 @@ const createContainer = () => {
   const roleController = new RoleController({ roleService });
   const loanController = new LoanController({ loanService, dueDateService });
   const interestRateController = new InterestRateController({ interestRateService });
+  const writeOffController = new WriteOffController({ writeOffService });
+  const exportController = new ExportController({ exportService });
   const paymentController = new PaymentController({ paymentService });
   const collectionController = new CollectionController({ collectionService });
   const reportController = new ReportController({ reportService });
@@ -233,6 +255,8 @@ const createContainer = () => {
       roleController,
       loanController,
       interestRateController,
+      writeOffController,
+      exportController,
       paymentController,
       collectionController,
       reportController,

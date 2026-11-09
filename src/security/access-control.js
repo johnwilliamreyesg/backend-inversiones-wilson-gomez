@@ -11,4 +11,16 @@ const ADMIN_ROLE_NAME = 'admin';
 // Permission that allows changing the catalog of interest rates.
 const INTEREST_RATES_MANAGE_PERMISSION = 'interest_rates.manage';
 
-module.exports = { USERS_MANAGE_PERMISSION, ADMIN_ROLE_NAME, INTEREST_RATES_MANAGE_PERMISSION };
+// Writing clients off and negotiating payment agreements.
+const WRITE_OFF_PERMISSION = 'portfolio.write_off';
+
+// Downloading the Excel backup of the whole database.
+const BACKUP_PERMISSION = 'backup.download';
+
+module.exports = {
+  USERS_MANAGE_PERMISSION,
+  ADMIN_ROLE_NAME,
+  INTEREST_RATES_MANAGE_PERMISSION,
+  WRITE_OFF_PERMISSION,
+  BACKUP_PERMISSION,
+};

@@ -11,6 +11,8 @@ const { createPaymentRoutes, createCollectionRoutes } = require('./payment.route
 const { createReportRoutes } = require('./report.routes');
 const { createRoleRoutes, createPermissionRoutes } = require('./role.routes');
 const { createInterestRateRoutes } = require('./interest-rate.routes');
+const { createWriteOffRoutes } = require('./write-off.routes');
+const { createBackupRoutes } = require('./backup.routes');
 
 // Single entry point for all API routes, mounted under /api in app.js.
 const createApiRouter = (controllers, middlewares) => {
@@ -29,6 +31,8 @@ const createApiRouter = (controllers, middlewares) => {
   router.use('/clients', middlewares.authenticate, createClientRoutes(controllers));
   router.use('/loans', middlewares.authenticate, createLoanRoutes(controllers));
   router.use('/interest-rates', middlewares.authenticate, createInterestRateRoutes(controllers));
+  router.use('/written-off', middlewares.authenticate, createWriteOffRoutes(controllers));
+  router.use('/backup', middlewares.authenticate, createBackupRoutes(controllers));
   router.use('/payments', middlewares.authenticate, createPaymentRoutes(controllers));
   router.use('/collections', middlewares.authenticate, createCollectionRoutes(controllers));
   router.use('/reports', middlewares.authenticate, createReportRoutes(controllers));

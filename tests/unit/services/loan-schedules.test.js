@@ -164,6 +164,47 @@ describe('BiweeklyScheduleStrategy', () => {
   });
 });
 
+describe('BiweeklyScheduleStrategy — with a rate (same math as monthly)', () => {
+  const strategy = new BiweeklyScheduleStrategy({ roundingUnitCents: ONE_PESO });
+  const terms = { principalAmount: 1_000_000, monthlyInterestRate: 10, numberOfInstallments: 4, startDate: '2026-11-03' };
+
+  it('equal installments: principal / 4 + half the monthly rate on the initial principal', () => {
+    const { installments } = strategy.buildSchedule(terms);
+    assert.deepEqual(installments.map(split), [
+      [250_000, 50_000, 300_000],
+      [250_000, 50_000, 300_000],
+      [250_000, 50_000, 300_000],
+      [250_000, 50_000, 300_000],
+    ]);
+  });
+
+  it('by default on the 15th and the 30th (last day in shorter months)', () => {
+    const { installments, paymentDay, secondPaymentDay } = strategy.buildSchedule({ ...terms, startDate: '2027-01-20', numberOfInstallments: 3 });
+    assert.deepEqual(installments.map(({ dueDate }) => dueDate), ['2027-01-30', '2027-02-15', '2027-02-28']);
+    assert.deepEqual([paymentDay, secondPaymentDay], [15, 30]);
+  });
+
+  it('on the two days the loan chose, skipping one closer than 8 days to the disbursement', () => {
+    const { installments, paymentDay, secondPaymentDay } = strategy.buildSchedule({ ...terms, paymentDay: 20, secondPaymentDay: 5 });
+    // Disbursed on Nov 3rd: Nov 5th is too close, so the first is Nov 20th.
+    assert.deepEqual(installments.map(({ dueDate }) => dueDate), ['2026-11-20', '2026-12-05', '2026-12-20', '2027-01-05']);
+    assert.deepEqual([paymentDay, secondPaymentDay], [5, 20]);
+  });
+
+  it('after a prepayment the installments stay equal: half the rate on the principal left', () => {
+    const remaining = [
+      { principalDue: 250_000, interestDue: 50_000 },
+      { principalDue: 250_000, interestDue: 50_000 },
+    ];
+    const interests = strategy.rescheduledInterestCents({
+      loan: { monthlyInterestRate: 10 },
+      installments: remaining,
+      principalsCents: [150_000 * 100, 150_000 * 100],
+    });
+    assert.deepEqual(interests.map((cents) => cents / 100), [15_000, 15_000]);
+  });
+});
+
 describe('LoanScheduleCalculator', () => {
   it('picks the strategy by frequency and adds totals', () => {
     const calculator = new LoanScheduleCalculator({

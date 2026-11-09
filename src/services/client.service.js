@@ -41,7 +41,7 @@ class ClientService {
     const openLoans = await this.loanRepository.countOpenByClientId(id);
     if (openLoans > 0) {
       throw new ConflictError(
-        `No se puede eliminar: el cliente tiene ${openLoans} crédito(s) abierto(s) como deudor o codeudor.`,
+        `No se puede eliminar: el cliente tiene ${openLoans} crédito(s) abierto(s) o castigado(s) como deudor o codeudor.`,
       );
     }
 

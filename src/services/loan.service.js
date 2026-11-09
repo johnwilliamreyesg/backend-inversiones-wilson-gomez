@@ -1,4 +1,5 @@
 const { NotFoundError, ConflictError, ValidationError } = require('../errors/app-error');
+const { loanStatusText } = require('../utils/loan-status-labels');
 const { OPEN_STATUSES: OPEN_INSTALLMENT_STATUSES } = require('../repositories/loan-installment.repository');
 const { daysBetween } = require('../utils/calendar-dates');
 const { toCents, fromCents } = require('../utils/money');
@@ -20,6 +21,7 @@ class LoanService {
     paymentRepository,
     clientRepository,
     dueDateChangeRepository,
+    loanRenegotiationRepository,
     interestRateService,
     scheduleCalculator,
     scheduleKeeper,
@@ -31,6 +33,7 @@ class LoanService {
     this.paymentRepository = paymentRepository;
     this.clientRepository = clientRepository;
     this.dueDateChangeRepository = dueDateChangeRepository;
+    this.loanRenegotiationRepository = loanRenegotiationRepository;
     this.interestRateService = interestRateService;
     this.scheduleCalculator = scheduleCalculator;
     this.scheduleKeeper = scheduleKeeper;
@@ -47,16 +50,19 @@ class LoanService {
   async create(input, { userId = null } = {}) {
     const terms = this.withStartDate(input);
     await this.ensureRateIsOffered(terms);
-    await this.ensureClientExists(terms.clientId, 'clientId', 'El cliente no existe.');
-    await this.ensureClientExists(terms.coDebtorId, 'coDebtorId', 'El codeudor no existe.');
+    const client = await this.ensureClientExists(terms.clientId, 'clientId', 'El cliente no existe.');
+    if (client.writtenOffAt) {
+      throw fieldError('clientId', 'El cliente está en cartera castigada: no se le pueden hacer créditos nuevos hasta que negocie lo que debe.');
+    }
+    if (terms.coDebtorId) await this.ensureClientExists(terms.coDebtorId, 'coDebtorId', 'El codeudor no existe.');
 
-    const { paymentDay, installments } = this.scheduleCalculator.calculate(terms);
+    const { paymentDay, secondPaymentDay, installments } = this.scheduleCalculator.calculate(terms);
 
     const loanId = await this.transactionManager.run(async (trx) => {
       const id = await this.loanRepository.create(
         {
           clientId: terms.clientId,
-          coDebtorId: terms.coDebtorId,
+          coDebtorId: terms.coDebtorId ?? null,
           frequency: terms.frequency,
           principalAmount: terms.principalAmount,
           monthlyInterestRate: terms.monthlyInterestRate ?? null,
@@ -64,6 +70,7 @@ class LoanService {
           numberOfInstallments: terms.numberOfInstallments ?? null,
           startDate: terms.startDate,
           paymentDay,
+          secondPaymentDay,
           principalBalance: terms.principalAmount,
           notes: terms.notes ?? null,
           createdBy: userId,
@@ -97,7 +104,9 @@ class LoanService {
     );
     // Every due date moved by hand, newest first ("Reagendada" in the detail).
     const dueDateChanges = await this.dueDateChangeRepository.findByLoanId(id);
-    return { ...loan, installments, summary: this.summarize(installments), dueDateChanges };
+    // Payment agreements made after the loan was written off.
+    const renegotiations = await this.loanRenegotiationRepository.findByLoanId(id);
+    return { ...loan, installments, summary: this.summarize(installments), dueDateChanges, renegotiations };
   }
 
   async listByClient(clientId) {
@@ -112,7 +121,7 @@ class LoanService {
       const loan = await this.loanRepository.findById(id, { trx, forUpdate: true });
       if (!loan) throw new NotFoundError('El crédito no existe.');
       if (loan.status !== 'active') {
-        throw new ConflictError(`Solo se puede cancelar un crédito activo (este está "${loan.status}").`);
+        throw new ConflictError(`Solo se puede cancelar un crédito activo (este está ${loanStatusText(loan.status)}).`);
       }
       const payments = await this.paymentRepository.countActiveByLoanId(id, { trx });
       if (payments > 0) {
@@ -136,14 +145,15 @@ class LoanService {
     return { ...terms, startDate };
   }
 
-  /** Monthly loans must use a rate of the catalog; biweekly loans have no rate. */
+  /** Every new loan uses a rate of the catalog (monthly and biweekly alike). */
   async ensureRateIsOffered(terms) {
-    if (terms.frequency === 'monthly') await this.interestRateService.ensureOffered(terms.monthlyInterestRate);
+    if (terms.monthlyInterestRate !== undefined) await this.interestRateService.ensureOffered(terms.monthlyInterestRate);
   }
 
   async ensureClientExists(clientId, field, message) {
     const client = await this.clientRepository.findById(clientId);
     if (!client) throw fieldError(field, message);
+    return client;
   }
 
   describeInstallment(installment, today) {

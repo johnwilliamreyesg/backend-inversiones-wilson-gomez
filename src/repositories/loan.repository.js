@@ -2,6 +2,8 @@ const TABLE_NAME = 'loans';
 
 // Statuses that still involve the client and co-debtor in an open obligation.
 const OPEN_STATUSES = ['active', 'defaulted'];
+// A written-off loan is still owed (it just stopped being collected).
+const OWED_STATUSES = [...OPEN_STATUSES, 'written_off'];
 
 // Every loan is returned with the names of its client and co-debtor, so lists
 // do not need extra requests.
@@ -21,6 +23,9 @@ const PUBLIC_COLUMNS = [
   'loans.numberOfInstallments',
   'loans.startDate',
   'loans.paymentDay',
+  'loans.secondPaymentDay',
+  'loans.writtenOffAt',
+  'loans.renegotiatedAt',
   'loans.principalBalance',
   'loans.status',
   'loans.notes',
@@ -39,7 +44,8 @@ class LoanRepository {
   withParties(trx) {
     return (trx ?? this.db)(TABLE_NAME)
       .join('clients as client', 'client.id', 'loans.clientId')
-      .join('clients as coDebtor', 'coDebtor.id', 'loans.coDebtorId');
+      // The co-debtor is optional.
+      .leftJoin('clients as coDebtor', 'coDebtor.id', 'loans.coDebtorId');
   }
 
   /**
@@ -124,14 +130,52 @@ class LoanRepository {
     const rows = await this.db(TABLE_NAME)
       .where({ status: 'active', frequency: 'monthly' })
       .whereNull('numberOfInstallments')
+      // A payment agreement replaced the open-ended schedule.
+      .whereNull('renegotiatedAt')
       .select('id');
     return rows.map(({ id }) => id);
   }
 
-  /** Counts open loans where the client is the debtor or the co-debtor. */
+  /** Open loans of a client as debtor, locked (writing the client off). */
+  findOpenByDebtor(clientId, { trx }) {
+    return trx(TABLE_NAME).where({ clientId }).whereIn('status', OPEN_STATUSES).forUpdate().select('id', 'principalBalance');
+  }
+
+  /** Written-off loans of these clients, with what is still owed on their installments. */
+  findWrittenOffByClients(clientIds, { trx } = {}) {
+    if (clientIds.length === 0) return [];
+    return (trx ?? this.db)(`${TABLE_NAME} as loan`)
+      .whereIn('loan.clientId', clientIds)
+      .where('loan.status', 'written_off')
+      .select(
+        'loan.id',
+        'loan.clientId',
+        'loan.frequency',
+        'loan.principalAmount',
+        'loan.principalBalance',
+        'loan.startDate',
+        'loan.writtenOffAt',
+        this.db.raw(
+          `(SELECT COALESCE(SUM(i.amount_due - i.principal_paid - i.interest_paid), 0)
+              FROM loan_installments i
+             WHERE i.loan_id = loan.id AND i.status IN ('pending', 'partially_paid')) AS ??`,
+          ['amountOwed'],
+        ),
+      )
+      .orderBy('loan.id');
+  }
+
+  countWrittenOffByClient(clientId, { trx } = {}) {
+    return (trx ?? this.db)(TABLE_NAME)
+      .where({ clientId, status: 'written_off' })
+      .count({ total: '*' })
+      .then(([{ total }]) => Number(total));
+  }
+
+  /** Counts loans still owed where the client is the debtor or the co-debtor. */
   async countOpenByClientId(clientId) {
     const [{ total }] = await this.db(TABLE_NAME)
-      .whereIn('status', OPEN_STATUSES)
+      .whereIn('status', OWED_STATUSES)
       .andWhere((builder) => builder.where({ clientId }).orWhere({ coDebtorId: clientId }))
       .count({ total: '*' });
     return Number(total);

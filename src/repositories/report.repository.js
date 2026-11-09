@@ -4,6 +4,8 @@
 // Rules shared by every report:
 // - voided payments never count (voided_at IS NULL);
 // - cancelled loans never count (they were registration mistakes);
+// - written-off loans ("cartera castigada") stay out of the effectiveness and
+//   the portfolio; the portfolio shows them apart;
 // - deleted expenses never count.
 class ReportRepository {
   constructor({ db }) {
@@ -88,7 +90,7 @@ class ReportRepository {
          SELECT to_char(i.due_date, 'YYYY-MM') AS month, SUM(i.amount_due) AS amount, COUNT(*)::int AS installments
            FROM loan_installments i
            JOIN loans l ON l.id = i.loan_id
-          WHERE i.status <> 'cancelled' AND l.status <> 'cancelled' AND i.due_date BETWEEN :from AND :to
+          WHERE i.status <> 'cancelled' AND l.status NOT IN ('cancelled', 'written_off') AND i.due_date BETWEEN :from AND :to
           GROUP BY 1
        ),
        collected_on_due AS (
@@ -137,7 +139,9 @@ class ReportRepository {
             FROM loan_installments i JOIN loans l ON l.id = i.loan_id
            WHERE l.status IN ('active', 'defaulted') AND i.status IN ('pending', 'partially_paid')
              AND i.due_date < :date) AS overdue_amount,
-         (SELECT COUNT(*)::int FROM clients WHERE deleted_at IS NULL) AS clients`,
+         (SELECT COUNT(*)::int FROM clients WHERE deleted_at IS NULL) AS clients,
+         (SELECT COUNT(*)::int FROM loans WHERE status = 'written_off') AS written_off_loans,
+         (SELECT COALESCE(SUM(principal_balance), 0) FROM loans WHERE status = 'written_off') AS written_off_principal`,
       { date },
     );
     return rows[0];

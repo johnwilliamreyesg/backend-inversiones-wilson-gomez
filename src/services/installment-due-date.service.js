@@ -1,6 +1,8 @@
 const { NotFoundError, ConflictError, ValidationError } = require('../errors/app-error');
+const { loanStatusText } = require('../utils/loan-status-labels');
 const { OPEN_STATUSES: OPEN_INSTALLMENT_STATUSES } = require('../repositories/loan-installment.repository');
 const { parse, dateInMonth, addMonths, addDays } = require('../utils/calendar-dates');
+const { nextDateOnDays } = require('./loan-schedules/biweekly-schedule-strategy');
 
 const PAYABLE_LOAN_STATUSES = ['active', 'defaulted'];
 const BIWEEKLY_GAP_DAYS = 15;
@@ -32,7 +34,7 @@ class InstallmentDueDateService {
       const loan = await this.loanRepository.findById(loanId, { trx, forUpdate: true });
       if (!loan) throw new NotFoundError('El crédito no existe.');
       if (!PAYABLE_LOAN_STATUSES.includes(loan.status)) {
-        throw new ConflictError(`No se pueden cambiar fechas: el crédito está "${loan.status}".`);
+        throw new ConflictError(`No se pueden cambiar fechas: el crédito está ${loanStatusText(loan.status)}.`);
       }
       if (dueDate < loan.startDate) throw fieldError('dueDate', 'La fecha no puede ser anterior al desembolso.');
 
@@ -93,6 +95,12 @@ class InstallmentDueDateService {
 
   /** Date of the n-th installment after the moved one, keeping the loan's rhythm. */
   followingDate(loan, firstDate, offset) {
+    if (loan.frequency === 'biweekly' && loan.secondPaymentDay) {
+      // Biweekly with collection days: the next ones fall on those days.
+      let date = firstDate;
+      for (let step = 0; step < offset; step += 1) date = nextDateOnDays(date, [loan.paymentDay, loan.secondPaymentDay]);
+      return date;
+    }
     if (loan.frequency === 'biweekly') return addDays(firstDate, BIWEEKLY_GAP_DAYS * offset);
     const { year, month, day } = parse(firstDate);
     const target = addMonths(year, month, offset);

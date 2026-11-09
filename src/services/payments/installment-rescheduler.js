@@ -31,9 +31,11 @@ class InstallmentRescheduler {
         ? this.cutFromTheEnd(before, prepaymentCents)
         : this.spreadEvenly(before, prepaymentCents);
 
-    const interestsCents = this.scheduleCalculator
-      .forFrequency(loan.frequency)
-      .rescheduledInterestCents({ loan, installments, principalsCents });
+    // A payment agreement has no rate of its own: its interest shrinks in
+    // proportion to the principal each installment still carries.
+    const interestsCents = loan.renegotiatedAt
+      ? this.proportionalInterestCents(installments, principalsCents)
+      : this.scheduleCalculator.forFrequency(loan.frequency).rescheduledInterestCents({ loan, installments, principalsCents });
 
     return installments.map(({ id }, index) => {
       const principal = principalsCents[index];
@@ -45,6 +47,16 @@ class InstallmentRescheduler {
         amountDue: fromCents(principal + interest),
         status: principal + interest === 0 ? 'cancelled' : 'pending',
       };
+    });
+  }
+
+  proportionalInterestCents(installments, principalsCents) {
+    return installments.map((installment, index) => {
+      const before = toCents(installment.principalDue);
+      const after = principalsCents[index];
+      if (after === 0) return 0;
+      if (before === 0) return toCents(installment.interestDue);
+      return roundCents((toCents(installment.interestDue) * after) / before, this.roundingUnitCents);
     });
   }
 

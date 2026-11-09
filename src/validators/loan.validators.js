@@ -17,7 +17,8 @@ const numberOfInstallments = z.coerce
 // defaults it to today and rejects future dates (needs the clock).
 const baseTerms = {
   clientId: clientRef('cliente'),
-  coDebtorId: clientRef('codeudor'),
+  // Optional: a loan may have no co-debtor.
+  coDebtorId: clientRef('codeudor').nullish().transform((value) => value ?? null),
   principalAmount: moneyAmount,
   startDate: isoDate().optional(),
   notes: optionalText(2000),
@@ -34,20 +35,28 @@ const monthlyTerms = z.object({
   paymentDay: z.coerce.number().int().min(1).max(31, 'El día de pago debe estar entre 1 y 31.').optional(),
 });
 
+const dayOfMonth = (label) => z.coerce.number().int().min(1).max(31, `El ${label} debe estar entre 1 y 31.`);
+
+// Biweekly: same math as monthly (rate of the catalog, equal installments),
+// one installment per fortnight, collected on two days of each month.
 const biweeklyTerms = z.object({
   ...baseTerms,
   frequency: z.literal('biweekly'),
-  installmentAmount: moneyAmount,
+  monthlyInterestRate: interestRateValue,
   numberOfInstallments,
+  paymentDay: dayOfMonth('primer día de cobro').default(15),
+  secondPaymentDay: dayOfMonth('segundo día de cobro').default(30),
 });
 
-// Biweekly: installments x amount must cover the principal (compared in cents).
-const installmentsCoverPrincipal = [
-  (terms) =>
-    terms.frequency !== 'biweekly' ||
-    Math.round(terms.installmentAmount * 100) * terms.numberOfInstallments >=
-      Math.round(terms.principalAmount * 100),
-  { message: 'Las cuotas no alcanzan a cubrir el capital prestado.', path: ['installmentAmount'] },
+// The two collection days must be about a fortnight apart (at least 7 days either way round the month).
+const MIN_DAYS_BETWEEN_COLLECTIONS = 7;
+const collectionDaysApart = [
+  (terms) => {
+    if (terms.frequency !== 'biweekly') return true;
+    const gap = Math.abs(terms.paymentDay - terms.secondPaymentDay);
+    return gap >= MIN_DAYS_BETWEEN_COLLECTIONS && 31 - gap >= MIN_DAYS_BETWEEN_COLLECTIONS;
+  },
+  { message: 'Los dos días de cobro deben estar separados al menos 7 días (por ejemplo 15 y 30, o 5 y 20).', path: ['secondPaymentDay'] },
 ];
 const FREQUENCY_ERROR = 'La frecuencia debe ser "monthly" (mensual) o "biweekly" (quincenal).';
 
@@ -58,7 +67,7 @@ const loanTermsSchema = z
     message: 'El codeudor debe ser una persona distinta al cliente.',
     path: ['coDebtorId'],
   })
-  .refine(...installmentsCoverPrincipal);
+  .refine(...collectionDaysApart);
 
 // The preview only needs the money terms, not who the parties are.
 const previewLoanSchema = z
@@ -66,7 +75,7 @@ const previewLoanSchema = z
     monthlyTerms.omit({ clientId: true, coDebtorId: true, notes: true }),
     biweeklyTerms.omit({ clientId: true, coDebtorId: true, notes: true }),
   ], { error: FREQUENCY_ERROR })
-  .refine(...installmentsCoverPrincipal);
+  .refine(...collectionDaysApart);
 
 const listLoansQuerySchema = paginationSchema.extend({
   status: z.enum(['active', 'paid_off', 'defaulted', 'cancelled']).optional(),

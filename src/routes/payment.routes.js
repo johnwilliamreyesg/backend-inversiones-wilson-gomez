@@ -56,8 +56,15 @@ const createLoanPaymentRoutes = ({ paymentController }) => {
 };
 
 // /collections: today's collection list.
-const createCollectionRoutes = ({ collectionController }) => {
+const createCollectionRoutes = ({ collectionController, exportController }) => {
   const router = Router();
+  // Printable PDF of the same list (same filters as GET /collections).
+  router.get(
+    '/print',
+    authorize('payments.read'),
+    validateRequest({ query: listCollectionsQuerySchema }),
+    exportController.collectionsPdf,
+  );
   router.get(
     '/',
     authorize('payments.read'),

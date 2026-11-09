@@ -9,6 +9,10 @@ const PUBLIC_COLUMNS = [
   'phoneNumber',
   'address',
   'notes',
+  // Written-off portfolio ("cartera castigada"): when, by whom and why.
+  'writtenOffAt',
+  'writtenOffBy',
+  'writeOffReason',
   'createdBy',
   'createdAt',
   'updatedAt',
@@ -68,12 +72,28 @@ class ClientRepository {
     return client;
   }
 
-  async update(id, data) {
-    const [client] = await this.activeClients()
+  async update(id, data, { trx } = {}) {
+    const [client] = await (trx ?? this.db)(TABLE_NAME)
+      .whereNull('deletedAt')
       .where({ id })
       .update(data)
       .returning(PUBLIC_COLUMNS);
     return client;
+  }
+
+  /** Locks the client row until the transaction ends (writing off). */
+  findByIdForUpdate(id, { trx }) {
+    return trx(TABLE_NAME).whereNull('deletedAt').where({ id }).forUpdate().first(PUBLIC_COLUMNS);
+  }
+
+  /** Written-off clients, most recent first, with who did it. */
+  findWrittenOff() {
+    return this.db(`${TABLE_NAME} as client`)
+      .leftJoin('users as user', 'user.id', 'client.writtenOffBy')
+      .whereNull('client.deletedAt')
+      .whereNotNull('client.writtenOffAt')
+      .select(PUBLIC_COLUMNS.map((column) => `client.${column}`).concat('user.fullName as writtenOffByName'))
+      .orderBy([{ column: 'client.writtenOffAt', order: 'desc' }]);
   }
 
   /** Returns true when a client was deleted, false when it did not exist. */

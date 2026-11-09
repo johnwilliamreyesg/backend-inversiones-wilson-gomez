@@ -1,4 +1,5 @@
 const { NotFoundError, ConflictError, ValidationError } = require('../errors/app-error');
+const { loanStatusText } = require('../utils/loan-status-labels');
 const { OPEN_STATUSES: OPEN_INSTALLMENT_STATUSES } = require('../repositories/loan-installment.repository');
 const { LoanScheduleKeeper } = require('./loan-schedules/loan-schedule-keeper');
 const { installmentStatusFor } = require('./payments/installment-status');
@@ -59,7 +60,7 @@ class PaymentService {
       const loan = await this.loanRepository.findById(loanId, { trx, forUpdate: true });
       if (!loan) throw new NotFoundError('El crédito no existe.');
       if (!PAYABLE_LOAN_STATUSES.includes(loan.status)) {
-        throw new ConflictError(`El crédito no recibe pagos: está "${loan.status}".`);
+        throw new ConflictError(`El crédito no recibe pagos: está ${loanStatusText(loan.status)}.`);
       }
       if (paymentDate < loan.startDate) {
         throw fieldError('paymentDate', 'La fecha del pago es anterior al desembolso del crédito.');

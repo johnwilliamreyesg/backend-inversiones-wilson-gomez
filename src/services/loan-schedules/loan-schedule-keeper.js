@@ -17,8 +17,9 @@ class LoanScheduleKeeper {
     this.clock = clock;
   }
 
+  /** Monthly without a term, unless a payment agreement replaced its schedule. */
   static isOpenEnded(loan) {
-    return loan.frequency === 'monthly' && !loan.numberOfInstallments;
+    return loan.frequency === 'monthly' && !loan.numberOfInstallments && !loan.renegotiatedAt;
   }
 
   /** Adds the missing installments of one loan. Call inside a transaction holding the loan lock. */

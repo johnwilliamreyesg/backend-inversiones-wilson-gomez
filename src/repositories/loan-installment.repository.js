@@ -50,7 +50,7 @@ class LoanInstallmentRepository {
     const query = this.db(`${TABLE_NAME} as installment`)
       .join('loans as loan', 'loan.id', 'installment.loanId')
       .join('clients as client', 'client.id', 'loan.clientId')
-      .join('clients as coDebtor', 'coDebtor.id', 'loan.coDebtorId')
+      .leftJoin('clients as coDebtor', 'coDebtor.id', 'loan.coDebtorId')
       .whereIn('loan.status', ['active', 'defaulted'])
       .whereIn('installment.status', OPEN_STATUSES)
       .where('installment.dueDate', '<=', date)

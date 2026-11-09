@@ -9,6 +9,8 @@ const PERMISSIONS = [
   { code: 'loans.create', description: 'Crear créditos' },
   { code: 'loans.update', description: 'Editar créditos' },
   { code: 'interest_rates.manage', description: 'Administrar tasas de interés' },
+  { code: 'portfolio.write_off', description: 'Castigar cartera y negociar acuerdos de pago' },
+  { code: 'backup.download', description: 'Descargar copia de seguridad (Excel)' },
   { code: 'payments.read', description: 'Ver cobros' },
   { code: 'payments.create', description: 'Registrar cobros' },
   { code: 'payments.void', description: 'Anular cobros' },

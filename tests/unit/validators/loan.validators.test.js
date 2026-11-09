@@ -10,8 +10,8 @@ const BIWEEKLY = {
   coDebtorId: 2,
   frequency: 'biweekly',
   principalAmount: 1_000_000,
-  installmentAmount: 120_000,
-  numberOfInstallments: 10,
+  monthlyInterestRate: 10,
+  numberOfInstallments: 4,
 };
 
 describe('createLoanSchema', () => {
@@ -24,8 +24,8 @@ describe('createLoanSchema', () => {
     const monthly = createLoanSchema.safeParse({ ...MONTHLY, monthlyInterestRate: undefined });
     assert.deepEqual(fieldsWithErrors(monthly), ['monthlyInterestRate']);
 
-    const biweekly = createLoanSchema.safeParse({ ...BIWEEKLY, installmentAmount: undefined, numberOfInstallments: undefined });
-    assert.deepEqual(fieldsWithErrors(biweekly).sort(), ['installmentAmount', 'numberOfInstallments']);
+    const biweekly = createLoanSchema.safeParse({ ...BIWEEKLY, monthlyInterestRate: undefined, numberOfInstallments: undefined });
+    assert.deepEqual(fieldsWithErrors(biweekly).sort(), ['monthlyInterestRate', 'numberOfInstallments']);
   });
 
   it('rejects an unknown frequency with a clear message', () => {
@@ -33,15 +33,22 @@ describe('createLoanSchema', () => {
     assert.match(result.error.issues[0].message, /monthly.*biweekly/);
   });
 
-  it('the co-debtor must be another person', () => {
-    const result = createLoanSchema.safeParse({ ...MONTHLY, coDebtorId: 1 });
-    assert.deepEqual(fieldsWithErrors(result), ['coDebtorId']);
+  it('the co-debtor is optional, but must be another person', () => {
+    assert.equal(createLoanSchema.safeParse({ ...MONTHLY, coDebtorId: undefined }).data.coDebtorId, null);
+    assert.equal(createLoanSchema.safeParse({ ...MONTHLY, coDebtorId: null }).success, true);
+    assert.deepEqual(fieldsWithErrors(createLoanSchema.safeParse({ ...MONTHLY, coDebtorId: 1 })), ['coDebtorId']);
   });
 
-  it('biweekly installments must cover the principal', () => {
-    const result = createLoanSchema.safeParse({ ...BIWEEKLY, installmentAmount: 99_999 });
-    assert.deepEqual(fieldsWithErrors(result), ['installmentAmount']);
-    assert.equal(createLoanSchema.safeParse({ ...BIWEEKLY, installmentAmount: 100_000 }).success, true);
+  it('biweekly: collection days default to 15 and 30', () => {
+    const { data } = createLoanSchema.safeParse(BIWEEKLY);
+    assert.deepEqual([data.paymentDay, data.secondPaymentDay], [15, 30]);
+  });
+
+  it('biweekly: the two collection days must be at least 7 days apart', () => {
+    assert.equal(createLoanSchema.safeParse({ ...BIWEEKLY, paymentDay: 5, secondPaymentDay: 20 }).success, true);
+    assert.deepEqual(fieldsWithErrors(createLoanSchema.safeParse({ ...BIWEEKLY, paymentDay: 15, secondPaymentDay: 18 })), ['secondPaymentDay']);
+    // 2 and 30 are 4 days apart across the month change.
+    assert.deepEqual(fieldsWithErrors(createLoanSchema.safeParse({ ...BIWEEKLY, paymentDay: 2, secondPaymentDay: 30 })), ['secondPaymentDay']);
   });
 
   it('limits the rate and the payment day', () => {

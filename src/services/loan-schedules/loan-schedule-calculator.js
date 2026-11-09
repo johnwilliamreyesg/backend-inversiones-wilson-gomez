@@ -18,12 +18,13 @@ class LoanScheduleCalculator {
 
   /** Adds totals so the preview and the detail show the whole picture. */
   calculate(terms) {
-    const { paymentDay, installments } = this.forFrequency(terms.frequency).buildSchedule(terms);
+    const { paymentDay, secondPaymentDay = null, installments } = this.forFrequency(terms.frequency).buildSchedule(terms);
     const sum = (field) =>
       installments.reduce((total, installment) => total + Math.round(installment[field] * 100), 0) / 100;
 
     return {
       paymentDay,
+      secondPaymentDay,
       installments,
       totals: {
         principal: sum('principalDue'),
